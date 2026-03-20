@@ -1,0 +1,25 @@
+{
+  "name": "work-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm -w apps/web run dev",
+    "build": "npm -w apps/web run build",
+    "start": "npm -w apps/web run start",
+    "test": "npm -w apps/web run test",
+    "test:e2e": "npm -w apps/web run test:e2e",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.28.0"
+  }
+}
