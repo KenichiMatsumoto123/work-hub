@@ -1,8 +1,6 @@
 import type { DailyReportData, StoredReports } from './types'
 
-const REPORTS_KEY = 'daily-reports'
-
-/** localStorage wrapper */
+/** localStorage wrapper（テンプレート保存用） */
 export const storage = {
   get(key: string): string | null {
     try {
@@ -21,7 +19,7 @@ export const storage = {
   },
 }
 
-/** sessionStorage wrapper */
+/** sessionStorage wrapper（autosave用） */
 export const session = {
   get(key: string): string | null {
     try {
@@ -40,41 +38,51 @@ export const session = {
   },
 }
 
-/** 日報の永続保存（localStorage） */
+/** 日報の永続保存（PostgreSQL via API） */
 export const reportStorage = {
-  getAll(): StoredReports {
-    const raw = storage.get(REPORTS_KEY)
-    if (!raw) return {}
+  async getAll(): Promise<StoredReports> {
     try {
-      return JSON.parse(raw)
+      const res = await fetch('/api/reports')
+      return await res.json()
     } catch {
       return {}
     }
   },
 
-  get(date: string): DailyReportData | null {
-    const all = this.getAll()
-    return all[date] ?? null
+  async save(data: DailyReportData): Promise<boolean> {
+    try {
+      const res = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await res.json()
+      return result.success === true
+    } catch {
+      return false
+    }
   },
 
-  save(data: DailyReportData): boolean {
-    const all = this.getAll()
-    all[data.date] = data
-    return storage.set(REPORTS_KEY, JSON.stringify(all))
+  async delete(date: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', date }),
+      })
+      const result = await res.json()
+      return result.success === true
+    } catch {
+      return false
+    }
   },
 
-  delete(date: string): boolean {
-    const all = this.getAll()
-    delete all[date]
-    return storage.set(REPORTS_KEY, JSON.stringify(all))
-  },
-
-  getByMonth(year: number, month: number): DailyReportData[] {
-    const all = this.getAll()
-    const prefix = `${year}-${String(month).padStart(2, '0')}`
-    return Object.entries(all)
-      .filter(([date]) => date.startsWith(prefix))
-      .map(([, data]) => data)
-      .sort((a, b) => a.date.localeCompare(b.date))
+  async getByMonth(year: number, month: number): Promise<DailyReportData[]> {
+    try {
+      const res = await fetch(`/api/reports?year=${year}&month=${month}`)
+      return await res.json()
+    } catch {
+      return []
+    }
   },
 }

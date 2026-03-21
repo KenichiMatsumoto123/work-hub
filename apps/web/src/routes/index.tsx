@@ -105,13 +105,13 @@ function HomePage() {
     setTimeout(() => setSavedMsg(''), 2000)
   }
 
-  const saveReport = () => {
+  const saveReport = async () => {
     if (!data.date) {
       setSavedMsg('日付を入力してください')
       setTimeout(() => setSavedMsg(''), 2000)
       return
     }
-    const ok = reportStorage.save(data)
+    const ok = await reportStorage.save(data)
     setSavedMsg(ok ? `${data.date} の日報を保存しました ✓` : '保存エラー')
     setTimeout(() => setSavedMsg(''), 2000)
   }

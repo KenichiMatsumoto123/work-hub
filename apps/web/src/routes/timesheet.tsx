@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { MonthlyTimesheetTable } from '~/components/report/MonthlyTimesheetTable'
 import { reportStorage } from '~/lib/storage'
 import { Button } from '~/components/ui/Button'
+import type { DailyReportData } from '~/lib/types'
 import '~/styles/app.css'
 
 export const Route = createFileRoute('/timesheet')({
@@ -14,8 +15,21 @@ function TimesheetPage() {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [selectedProject, setSelectedProject] = useState<string>('')
+  const [reports, setReports] = useState<DailyReportData[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const reports = useMemo(() => reportStorage.getByMonth(year, month), [year, month])
+  // Fetch reports from DB when year/month changes
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    reportStorage.getByMonth(year, month).then((data) => {
+      if (!cancelled) {
+        setReports(data)
+        setLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [year, month])
 
   // Collect all unique project names from the month's reports
   const projectNames = useMemo(() => {
@@ -70,7 +84,11 @@ function TimesheetPage() {
       </div>
 
       {/* Table */}
-      {reports.length === 0 ? (
+      {loading ? (
+        <div className="bg-surface border border-border rounded-lg p-8 text-center text-text-dim">
+          <p>読み込み中...</p>
+        </div>
+      ) : reports.length === 0 ? (
         <div className="bg-surface border border-border rounded-lg p-8 text-center text-text-dim">
           <p className="text-lg mb-2">データがありません</p>
           <p className="text-[13px]">{year}年{month}月の日報が保存されていません。日報入力画面から保存してください。</p>
