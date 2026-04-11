@@ -39,7 +39,7 @@ export const getAllReportsFn = createServerFn({ method: 'GET' }).handler(
 )
 
 export const getReportsByMonthFn = createServerFn({ method: 'GET' })
-  .validator((data: { year: number; month: number }) => data)
+  .inputValidator((data: { year: number; month: number }) => data)
   .handler(async ({ data }) => {
     const { year, month } = data
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`
@@ -57,7 +57,7 @@ export const getReportsByMonthFn = createServerFn({ method: 'GET' })
   })
 
 export const saveReportFn = createServerFn({ method: 'POST' })
-  .validator((data: DailyReportData) => data)
+  .inputValidator((data: DailyReportData) => data)
   .handler(async ({ data }) => {
     const workHours =
       parseTime(data.endTime) - parseTime(data.startTime) - parseTime(data.breakTime)
@@ -96,7 +96,7 @@ export const saveReportFn = createServerFn({ method: 'POST' })
   })
 
 export const deleteReportFn = createServerFn({ method: 'POST' })
-  .validator((data: { date: string }) => data)
+  .inputValidator((data: { date: string }) => data)
   .handler(async ({ data }) => {
     await db.delete(dailyReports).where(eq(dailyReports.date, data.date))
     return { success: true }
