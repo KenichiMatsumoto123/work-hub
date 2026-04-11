@@ -1,4 +1,10 @@
 import type { DailyReportData, StoredReports } from './types'
+import {
+  getAllReportsFn,
+  getReportsByMonthFn,
+  saveReportFn,
+  deleteReportFn,
+} from '~/server/functions/reports'
 
 /** localStorage wrapper（テンプレート保存用） */
 export const storage = {
@@ -38,12 +44,11 @@ export const session = {
   },
 }
 
-/** 日報の永続保存（PostgreSQL via API） */
+/** 日報の永続保存（PostgreSQL via createServerFn） */
 export const reportStorage = {
   async getAll(): Promise<StoredReports> {
     try {
-      const res = await fetch('/api/reports')
-      return await res.json()
+      return await getAllReportsFn()
     } catch {
       return {}
     }
@@ -51,12 +56,7 @@ export const reportStorage = {
 
   async save(data: DailyReportData): Promise<boolean> {
     try {
-      const res = await fetch('/api/reports', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      const result = await res.json()
+      const result = await saveReportFn({ data })
       return result.success === true
     } catch {
       return false
@@ -65,12 +65,7 @@ export const reportStorage = {
 
   async delete(date: string): Promise<boolean> {
     try {
-      const res = await fetch('/api/reports', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'delete', date }),
-      })
-      const result = await res.json()
+      const result = await deleteReportFn({ data: { date } })
       return result.success === true
     } catch {
       return false
@@ -79,8 +74,7 @@ export const reportStorage = {
 
   async getByMonth(year: number, month: number): Promise<DailyReportData[]> {
     try {
-      const res = await fetch(`/api/reports?year=${year}&month=${month}`)
-      return await res.json()
+      return await getReportsByMonthFn({ data: { year, month } })
     } catch {
       return []
     }
