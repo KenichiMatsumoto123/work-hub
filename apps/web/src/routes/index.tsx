@@ -43,7 +43,7 @@ function TabButton({
 }
 
 function HomePage() {
-  const [data, setData] = useState<DailyReportData>(defaultDailyReport)
+  const [data, setData] = useState<DailyReportData>(defaultDailyReport())
   const [activeTab, setActiveTab] = useState<TabId>('input')
   const [savedMsg, setSavedMsg] = useState('')
 
@@ -111,8 +111,12 @@ function HomePage() {
       setTimeout(() => setSavedMsg(''), 2000)
       return
     }
-    const ok = await reportStorage.save(data)
-    setSavedMsg(ok ? `${data.date} の日報を保存しました ✓` : '保存エラー')
+    const result = await reportStorage.save(data)
+    setSavedMsg(
+      result.ok
+        ? `${data.date} の日報を保存しました ✓`
+        : `保存エラー${result.error ? `: ${result.error}` : ''}`
+    )
     setTimeout(() => setSavedMsg(''), 2000)
   }
 
@@ -218,7 +222,7 @@ function HomePage() {
                   💾 日報保存
                 </Button>
                 <Button variant="default" onClick={addProject}>
-                  + プロジェクト追加
+                  + 取引先追加
                 </Button>
               </div>
             </div>

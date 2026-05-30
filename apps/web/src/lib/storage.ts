@@ -54,12 +54,13 @@ export const reportStorage = {
     }
   },
 
-  async save(data: DailyReportData): Promise<boolean> {
+  async save(data: DailyReportData): Promise<{ ok: boolean; error?: string }> {
     try {
       const result = await saveReportFn({ data })
-      return result.success === true
-    } catch {
-      return false
+      return { ok: result.success === true }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      return { ok: false, error }
     }
   },
 

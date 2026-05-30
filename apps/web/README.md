@@ -20,11 +20,16 @@
 
 ```bash
 npm install
+cp .env.example .env   # 必要に応じて DATABASE_URL / POSTGRES_HOST_PORT を編集
+npm run db:setup       # PostgreSQL 起動 + スキーマ反映（初回のみ）
 ```
+
+`DATABASE_URL` のポート番号と `POSTGRES_HOST_PORT`（docker-compose のホスト側ポート）は一致させてください。
 
 ## 開発
 
 ```bash
+npm run db:check   # DB 接続確認（任意）
 npm run dev
 ```
 

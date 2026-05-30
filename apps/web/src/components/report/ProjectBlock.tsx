@@ -34,7 +34,7 @@ export function ProjectBlock({ project, onChange, onRemove, canRemove }: Project
       <div className="flex gap-2 items-center">
         <span className="text-accent font-bold text-base">■</span>
         <Input
-          placeholder="プロジェクト名 (例: Hexabase)"
+          placeholder="取引先"
           value={project.name}
           onChange={(e) => up('name', e.target.value)}
           className="flex-1 !font-semibold !text-sm"

@@ -17,7 +17,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "db:check": "node scripts/check-db.mjs",
+    "db:setup": "npm run db:up && node scripts/wait-for-db.mjs && npm run db:push"
   },
   "devDependencies": {
     "drizzle-kit": "^0.28.0"

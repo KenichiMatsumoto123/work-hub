@@ -15,7 +15,7 @@ export function TaskRow({ task, onChange, onRemove, canRemove }: TaskRowProps) {
   return (
     <div className="flex gap-1.5 items-center flex-wrap">
       <Input
-        placeholder="ラベル (例: HNC)"
+        placeholder="プロジェクト"
         value={task.label}
         onChange={(e) => up('label', e.target.value)}
         className="!w-[90px] flex-[0_0_90px]"
