@@ -2,14 +2,19 @@
 import type { ReactNode } from 'react'
 import {
   Outlet,
-  Link,
   createRootRoute,
   HeadContent,
   Scripts,
 } from '@tanstack/react-router'
+import { fetchSession } from '~/server/auth-session'
 import '~/styles/app.css'
 
 export const Route = createRootRoute({
+  // セッションを一度だけサーバ側で取得し、子ルート（_authed / login）へ context で配る
+  beforeLoad: async () => {
+    const session = await fetchSession()
+    return { session }
+  },
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -26,28 +31,9 @@ export const Route = createRootRoute({
   component: RootComponent,
 })
 
-function NavLink({ to, children }: { to: string; children: ReactNode }) {
-  return (
-    <Link
-      to={to}
-      className="px-3 py-1.5 rounded-md text-[13px] transition-all duration-150 hover:bg-surface-hover"
-      activeProps={{ className: 'px-3 py-1.5 rounded-md text-[13px] bg-accent text-white font-semibold' }}
-    >
-      {children}
-    </Link>
-  )
-}
-
 function RootComponent() {
   return (
     <RootDocument>
-      {/* Global Nav */}
-      <nav className="bg-surface border-b border-border px-6 py-2 flex items-center gap-1">
-        <span className="text-[20px] mr-2">📋</span>
-        <NavLink to="/">日報入力</NavLink>
-        <NavLink to="/timesheet">工数管理</NavLink>
-        <NavLink to="/attendance">勤怠管理</NavLink>
-      </nav>
       <Outlet />
     </RootDocument>
   )

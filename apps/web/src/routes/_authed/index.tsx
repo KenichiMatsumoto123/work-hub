@@ -15,7 +15,7 @@ import { defaultTask } from '~/lib/defaults'
 import type { DailyReportData, Project } from '~/lib/types'
 import '~/styles/app.css'
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute('/_authed/')({
   component: HomePage,
 })
 

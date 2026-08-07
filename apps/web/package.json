@@ -14,13 +14,15 @@
   "dependencies": {
     "@tanstack/react-router": "^1.167.4",
     "@tanstack/react-start": "^1.166.16",
-    "drizzle-orm": "^0.38.0",
+    "better-auth": "^1.6.12",
+    "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@better-auth/cli": "^1.4.21",
     "@playwright/test": "^1.49.0",
     "@tailwindcss/vite": "^4.2.1",
     "@types/node": "^25.5.0",

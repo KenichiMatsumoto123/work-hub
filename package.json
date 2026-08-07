@@ -22,6 +22,6 @@
     "db:setup": "npm run db:up && node scripts/wait-for-db.mjs && npm run db:push"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.28.0"
+    "drizzle-kit": "^0.31.10"
   }
 }

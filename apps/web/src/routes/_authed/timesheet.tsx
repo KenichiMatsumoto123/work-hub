@@ -6,7 +6,7 @@ import { Button } from '~/components/ui/Button'
 import type { DailyReportData } from '~/lib/types'
 import '~/styles/app.css'
 
-export const Route = createFileRoute('/timesheet')({
+export const Route = createFileRoute('/_authed/timesheet')({
   component: TimesheetPage,
 })
 
