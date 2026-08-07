@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop, main, staging]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run check-types
+
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  db-integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mariadb:
+        image: mariadb:11.3.2
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: integration_test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/integration_test_db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      # TODO: マイグレーション運用に移行したら `npx prisma migrate deploy` に切り替える
+      - name: Apply database schema
+        run: npx prisma db push
+
+      - name: Run integration tests
+        run: npm run test:integration

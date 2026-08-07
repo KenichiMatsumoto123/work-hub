@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "skills": {
+    "flow-agent-roles": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-agent-roles/SKILL.md",
+      "computedHash": "46387331a8d832b7a7176a1cdf051fe2dff6747c47eb7ec95b633a054d84ab01"
+    },
+    "flow-kickoff": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-kickoff/SKILL.md",
+      "computedHash": "16fbf374cc1fe10cf0285bb4e91083cb1612b84d641af867e1888f3107d00586"
+    },
+    "flow-phase1-design-doc": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase1-design-doc/SKILL.md",
+      "computedHash": "06a26f11f71483daaf479c47df9ed8152d2b0e36cf2e2bcb820254bd1cff70ac"
+    },
+    "flow-phase10-impl-review": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase10-impl-review/SKILL.md",
+      "computedHash": "208f2443375a07659f82742522709552ce40e8c1ae661d57947084159759b579"
+    },
+    "flow-phase2-spec-review": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase2-spec-review/SKILL.md",
+      "computedHash": "dd2f4f16b72dd96acbf6df46bf6eda5d5ce32e7ee9cbd5c686a22f9c73e3506d"
+    },
+    "flow-phase4-impl-plan": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase4-impl-plan/SKILL.md",
+      "computedHash": "37d10088b3693838b62ff15922b55189fb08549ef59c3f698def6fea0d170f9d"
+    },
+    "flow-phase5-tests": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase5-tests/SKILL.md",
+      "computedHash": "14ed2959ee3b87038c4079662eb8144eb9a1f3ccc7b70171a924d34b9e8bf4b1"
+    },
+    "flow-phase6-test-review": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase6-test-review/SKILL.md",
+      "computedHash": "ef0fb5351b506ec55781d4aeb1d1114a0c92fc98fa11673ba2aefd28c02842c5"
+    },
+    "flow-phase8-impl": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase8-impl/SKILL.md",
+      "computedHash": "462665cf02413580caa8754577bbec29ae1e243c5eb7829f8bcb21f5dba55560"
+    },
+    "flow-phase9-refactor": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-phase9-refactor/SKILL.md",
+      "computedHash": "0dcb2403d3437eded2806395d507a9e69ebf2cf7733b6de2e6370fce05ba76f2"
+    },
+    "flow-setup": {
+      "source": "arumako1/ai-tdd-1",
+      "sourceType": "github",
+      "skillPath": "skills/flow-setup/SKILL.md",
+      "computedHash": "16c31283e7369fc453408c13dc793022d7c02bfb831176187489071223dd18f2"
+    }
+  }
+}
