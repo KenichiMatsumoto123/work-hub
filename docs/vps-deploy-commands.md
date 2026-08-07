@@ -383,6 +383,152 @@ sudo systemctl restart nginx
 
 ---
 
+## 14. Let's Encrypt によるSSL化（HTTPS対応）
+
+### 前提
+
+- 独自ドメイン `work-hub.arumako-matsumoto.com` のAレコードが VPS の IP（`49.212.187.161`）に向いていること
+- 確認コマンド（ローカルPCでOK）：
+```bash
+nslookup work-hub.arumako-matsumoto.com
+```
+`Address: 49.212.187.161` が返ればOK（2026-06-13 確認済み）。
+
+Let's Encrypt は「ドメインの所有確認」を行って無料のSSL証明書を発行する認証局。IPアドレスのみでは実質発行できないため独自ドメインが必須。証明書の有効期限は90日と短いが、certbot が自動更新するため運用の手間はない。
+
+### 14-1. さくらVPS パケットフィルターでポート443を許可
+
+コントロールパネル → パケットフィルター → **ポート443（HTTPS）を許可**。
+
+- 証明書発行時のドメイン所有確認（HTTP-01チャレンジ）はポート80を使うが、発行後のHTTPSアクセスには443が必要
+
+### 14-2. Nginx設定の修正（certbot実行前の準備）
+
+```bash
+sudo nano /etc/nginx/sites-available/work-hub
+```
+内容をすべて以下に書き換える：
+
+```nginx
+server {
+    listen 80;
+    server_name work-hub.arumako-matsumoto.com;
+
+    location / {
+        auth_basic "Restricted";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+    }
+}
+```
+
+変更点は3つ：
+
+- `server_name _` → `server_name work-hub.arumako-matsumoto.com` — certbot は `server_name` を見て「どのserverブロックにSSL設定を追加するか」を特定するため、ドメイン名の明示が必須
+- `auth_basic` をserver直下から `location /` 内へ移動 — server直下に置くと、Let's Encrypt のドメイン所有確認（`/.well-known/acme-challenge/` へのアクセス）までBasic認証でブロックされ、証明書の発行・自動更新が失敗する。`location /` 内に置けば、certbot が確認時に一時追加するlocationには認証がかからない
+- `proxy_set_header X-Forwarded-Proto $scheme;` を追加 — 「元のリクエストがhttpsだった」という情報をアプリに伝える。secure cookie の発行やリダイレクトURLの組み立てに必要（特にログイン機能で重要）
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+`reload` は接続を切らずに設定だけを再読み込みする（`restart` よりも安全）。
+
+### 14-3. certbot のインストール
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+```
+- `certbot` — Let's Encrypt の証明書を取得・更新する公式ツール
+- `python3-certbot-nginx` — Nginxの設定を自動で書き換えるプラグイン
+
+※公式はsnap版を推奨しているが、Ubuntu 24.04 のapt版で十分新しい。メモリ1GBのVPSではsnapdを常駐させないapt版のほうが軽量。
+
+### 14-4. 証明書の発行とNginxへの自動設定
+
+```bash
+sudo certbot --nginx -d work-hub.arumako-matsumoto.com
+```
+- `--nginx` — Nginxプラグインを使用。ドメイン所有確認とNginx設定の書き換えを自動で行う
+- `-d` — 証明書を発行するドメイン名
+
+対話で聞かれること：
+
+1. **メールアドレス** — 証明書の期限切れ警告などの通知先
+2. **利用規約への同意** — `Y`
+3. **EFFからのお知らせメール** — `N` でよい
+4. **HTTP→HTTPSリダイレクト** — 聞かれた場合は `2: Redirect` を選択（最近のバージョンは自動でリダイレクト設定される）
+
+成功すると `Successfully deployed certificate` と表示され、`/etc/nginx/sites-available/work-hub` に以下が自動追記される：
+
+- `listen 443 ssl` のserverブロック（証明書ファイルのパス付き）
+- ポート80 → 443 へのリダイレクト設定
+
+証明書ファイルの保存先は `/etc/letsencrypt/live/work-hub.arumako-matsumoto.com/`。
+
+### 14-5. 自動更新の確認
+
+```bash
+sudo systemctl list-timers | grep certbot
+```
+certbot はインストール時に自動更新タイマー（1日2回チェック、期限30日前に更新実行）を登録する。`certbot.timer` が表示されればOK。
+
+```bash
+sudo certbot renew --dry-run
+```
+更新処理のリハーサル。`Congratulations, all simulated renewals succeeded` と表示されれば、90日ごとの証明書更新は全自動で行われる。
+
+### 14-6. 動作確認
+
+ブラウザで以下を確認：
+
+- `https://work-hub.arumako-matsumoto.com` — Basic認証 → アプリが表示され、アドレスバーに鍵マークが出る
+- `http://work-hub.arumako-matsumoto.com` — 自動的に `https://` へリダイレクトされる
+
+コマンドでの確認：
+```bash
+curl -I http://work-hub.arumako-matsumoto.com
+```
+`301 Moved Permanently` と `Location: https://...` が返ればリダイレクトOK。
+
+### 14-7. ログイン機能（Google OAuth）デプロイ時の追加設定
+
+`feature/login` ブランチをデプロイする際は、HTTPS化に伴い以下も必要：
+
+**① VPSの `/opt/work-hub/.env` に追記：**
+```bash
+BETTER_AUTH_URL=https://work-hub.arumako-matsumoto.com
+BETTER_AUTH_SECRET=<ランダム文字列。openssl rand -base64 32 で生成>
+GOOGLE_CLIENT_ID=xxxxxxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxx
+ALLOWED_EMAIL_DOMAIN=arumako.com
+```
+- `BETTER_AUTH_URL` はOAuthのリダイレクトURI組み立てとCookieの基準になるため、必ず `https://` のドメインを設定する（`http://` やIPのままだとログインが失敗する）
+
+**② Google Cloud Console（APIとサービス → 認証情報 → OAuthクライアント）に本番URLを追加：**
+
+- 承認済みのJavaScript生成元： `https://work-hub.arumako-matsumoto.com`
+- 承認済みのリダイレクトURI： `https://work-hub.arumako-matsumoto.com/api/auth/callback/google`
+
+詳細は `apps/web/docs/google-oauth-setup.md` を参照。
+
+**③ アプリの再起動：**
+```bash
+pm2 restart work-hub
+```
+
+> 補足: 以前は `.env` の読み込みが起動ディレクトリ依存（`cwd/../../.env` 固定）で、pm2 を `/opt/work-hub` から起動すると `/opt/work-hub/.env` が読まれなかった。`apps/web/src/server/env.ts` を修正し、モノレポroot直下の `.env` も探索するようにした（2026-06-13）。
+
+---
+
 ## 再デプロイ手順（コード更新時）
 
 ローカルで変更をコミット・プッシュした後、VPSで以下を実行：
@@ -404,10 +550,8 @@ pm2 restart work-hub
 - `configureServer`はViteの開発サーバー専用の機能であり、本番ビルドでは動作しない
 - 本番環境でAPIルートが機能するよう、TanStack Startのサーバー機能または`serve.mjs`内でAPIルートを実装する必要がある
 
-### SSL化
-- 独自ドメインを取得後、Let's Encrypt（certbot）で無料SSL証明書を発行
-- NginxにHTTPS設定を追加（ポート443）
-- さくらVPSのパケットフィルターでポート443を許可
+### ~~SSL化~~ → 手順14として追加済み
+- ドメイン `work-hub.arumako-matsumoto.com` 取得済み。手順14（Let's Encrypt によるSSL化）を参照
 
 ### Docker化（将来的な移行）
 - 現在は直接インストール構成
