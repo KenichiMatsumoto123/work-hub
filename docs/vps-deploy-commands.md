@@ -397,6 +397,39 @@ pm2 restart work-hub
 
 ---
 
+## トラブルシューティング
+
+### 日報の保存で「保存エラー」`password authentication failed for user "workhub"`
+
+アプリが `.env` を読めず、開発用の既定接続先（パスワード `workhub_dev`）で接続しようとすると発生する。
+
+確認：
+```bash
+cat /opt/work-hub/.env          # DATABASE_URL の行があるか
+pm2 logs work-hub --lines 50    # 接続先の警告・エラーが出ていないか
+```
+
+`.env` が無い場合は再作成して再起動する：
+```bash
+cd /opt/work-hub
+echo 'DATABASE_URL=postgresql://workhub:ab958533@localhost:5432/workhub' > .env
+pm2 restart work-hub
+```
+
+`.env` はGitの管理対象外（`.gitignore`）のため、`git pull` では復元されない。VPSを作り直したり別ディレクトリへ再配置した場合は手動で作成すること。
+
+パスワード自体が合っていない場合は、DBユーザーのパスワードを`.env`の値に合わせる：
+```bash
+sudo -u postgres psql -c "ALTER USER workhub WITH PASSWORD 'ab958533';"
+pm2 restart work-hub
+```
+
+なお、`.env` の探索は起動ディレクトリから親方向へ遡って行われるため、`pm2 start apps/web/serve.mjs` をリポジトリ直下で実行しても `npm run start` でも同じ `.env` が読まれる。本番（`serve.mjs` 起動）では `DATABASE_URL` を解決できない場合、開発用の接続先にフォールバックせず起動時にエラーとなる。
+
+`drizzle-kit`（マイグレーション）も同じ解決処理を使うため、環境変数を export していなくても `.env` があれば実行できる。
+
+---
+
 ## TODO
 
 ### APIルート（`/api/reports`）の本番対応

@@ -7,6 +7,11 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const clientDir = join(__dirname, 'dist', 'client')
 const port = process.env.PORT || 3000
 
+// 本番用エントリポイント。pm2 などから起動されると NODE_ENV が未設定になるため明示する。
+process.env.NODE_ENV ||= 'production'
+// 起動ディレクトリに依存せず .env を見つけられるよう、アプリの配置先を伝える
+process.env.WORK_HUB_APP_DIR ||= __dirname
+
 const mimeTypes = {
   '.html': 'text/html',
   '.js': 'application/javascript',
