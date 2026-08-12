@@ -5,11 +5,12 @@
  * `pm2 start apps/web/serve.mjs` なら pm2 を実行したディレクトリ）ため、
  * 固定の相対パスではなく親ディレクトリを遡って .env を探す。
  *
- * .env のパース自体は Node 組み込みの util.parseEnv に任せる。
+ * .env のパース自体は dotenv の parse に任せる（ファイル探索や process.env への
+ * 注入はしない純粋な関数のため、探索処理と組み合わせて使える）。
  */
 import { existsSync, readFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
-import { parseEnv } from 'util'
+import { parse as parseEnv } from 'dotenv'
 
 /** .env が無い場合の開発用フォールバック（.env.example と docker-compose に合わせる） */
 export const DEV_FALLBACK_DATABASE_URL =
