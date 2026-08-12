@@ -1,5 +1,5 @@
 /**
- * .env の読み込みと DATABASE_URL の解決
+ * .env の読み込みと環境変数（DATABASE_URL・認証設定など）の解決
  *
  * 起動方法によって process.cwd() が変わる（npm run start ならリポジトリ直下、
  * `pm2 start apps/web/serve.mjs` なら pm2 を実行したディレクトリ）ため、
@@ -30,6 +30,63 @@ export function findEnvFile(startDir: string): string | null {
   }
 }
 
+/** 環境変数1件の解決結果。値が無い場合に「どこを探したか」を説明できるようにする */
+export type EnvLookup = {
+  /** 見つかった値（環境変数または .env の記述）。見つからなければ undefined */
+  value: string | undefined
+  /** 探索で見つかった .env のパス（.env 自体が無ければ null） */
+  envPath: string | null
+  /** 探索の起点にしたディレクトリ（エラーメッセージ用） */
+  startDirs: string[]
+}
+
+/**
+ * 環境変数を「環境変数 → 親ディレクトリを遡って見つけた .env」の順で解決する。
+ * 見つからない場合も探索経路を返し、呼び出し側が原因の分かるメッセージを組み立てられるようにする。
+ */
+export function lookupEnvValue(
+  key: string,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd(),
+): EnvLookup {
+  // cwd 起点で見つからない場合に備え、サーバー起動スクリプトが渡すアプリ配置先も探索する
+  const startDirs = [cwd]
+  if (env.WORK_HUB_APP_DIR) startDirs.push(env.WORK_HUB_APP_DIR)
+
+  if (env[key]) return { value: env[key], envPath: null, startDirs }
+
+  let envPath: string | null = null
+  for (const dir of startDirs) {
+    const found = findEnvFile(dir)
+    if (!found) continue
+
+    envPath = found
+    const value = parseEnv(readFileSync(found, 'utf-8'))[key]
+    if (value) return { value, envPath, startDirs }
+  }
+
+  return { value: undefined, envPath, startDirs }
+}
+
+/** lookupEnvValue の結果から「どこを探したか」の説明文を作る */
+export function describeEnvLookup(key: string, lookup: EnvLookup): string {
+  return lookup.envPath
+    ? `${lookup.envPath} に ${key} の記述がありません`
+    : `${lookup.startDirs.map((d) => resolve(d)).join(', ')} から上位ディレクトリを探索しましたが .env が見つかりません`
+}
+
+/**
+ * 環境変数を解決する。見つからなければ undefined を返す。
+ * 値の有無で分岐したいだけの呼び出し側（任意設定）向けの薄いラッパ。
+ */
+export function resolveEnvValue(
+  key: string,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd(),
+): string | undefined {
+  return lookupEnvValue(key, env, cwd).value
+}
+
 /**
  * DATABASE_URL を解決する。
  * 環境変数 → 親ディレクトリを遡って見つけた .env → 開発用フォールバック の順。
@@ -42,24 +99,10 @@ export function resolveDatabaseUrl(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd(),
 ): string {
-  if (env.DATABASE_URL) return env.DATABASE_URL
+  const lookup = lookupEnvValue('DATABASE_URL', env, cwd)
+  if (lookup.value) return lookup.value
 
-  // cwd 起点で見つからない場合に備え、サーバー起動スクリプトが渡すアプリ配置先も探索する
-  const startDirs = [cwd]
-  if (env.WORK_HUB_APP_DIR) startDirs.push(env.WORK_HUB_APP_DIR)
-
-  let envPath: string | null = null
-  for (const dir of startDirs) {
-    envPath = findEnvFile(dir)
-    if (!envPath) continue
-
-    const value = parseEnv(readFileSync(envPath, 'utf-8')).DATABASE_URL
-    if (value) return value
-  }
-
-  const where = envPath
-    ? `${envPath} に DATABASE_URL の記述がありません`
-    : `${startDirs.map((d) => resolve(d)).join(', ')} から上位ディレクトリを探索しましたが .env が見つかりません`
+  const where = describeEnvLookup('DATABASE_URL', lookup)
 
   if (env.NODE_ENV === 'production') {
     throw new Error(

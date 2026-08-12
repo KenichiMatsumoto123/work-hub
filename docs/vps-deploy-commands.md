@@ -171,9 +171,21 @@ npm install
 
 ### 環境変数ファイルの作成
 ```bash
-echo 'DATABASE_URL=postgresql://workhub:ab958533@localhost:5432/workhub' > .env
+cat > .env <<'EOF'
+DATABASE_URL=postgresql://workhub:ab958533@localhost:5432/workhub
+BETTER_AUTH_SECRET=<openssl rand -base64 32 の出力>
+BETTER_AUTH_URL=https://<公開URL>
+GOOGLE_CLIENT_ID=<GCPで発行したクライアントID>
+GOOGLE_CLIENT_SECRET=<GCPで発行したクライアントシークレット>
+AUTH_ALLOWED_EMAILS=<ログインを許可するメールアドレス（カンマ区切り）>
+EOF
 ```
-アプリがDBに接続するための接続文字列を`.env`ファイルに保存。パスワードは`CREATE USER`で設定したものと一致させる必要がある。
+アプリがDBに接続するための接続文字列と、ログイン（Google OAuth）の設定を`.env`に保存する。
+DBのパスワードは`CREATE USER`で設定したものと一致させる必要がある。
+
+`BETTER_AUTH_SECRET` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` は本番起動時に必須で、
+未設定だと起動時にエラーになる（誤設定のまま動いてログイン画面だけ壊れる状態を避けるため）。
+Google 側のクライアント発行手順は [google-oauth.md](./google-oauth.md) を参照。
 
 ### DBスキーマの適用
 ```bash
