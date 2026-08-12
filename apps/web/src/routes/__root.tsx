@@ -6,10 +6,30 @@ import {
   createRootRoute,
   HeadContent,
   Scripts,
+  redirect,
 } from '@tanstack/react-router'
+import { authClient } from '~/lib/auth-client'
+import { isPublicPath } from '~/lib/auth-redirect'
+import { getSessionUserFn } from '~/server/functions/auth'
 import '~/styles/app.css'
 
 export const Route = createRootRoute({
+  /**
+   * 全ページ共通のログイン判定。
+   * 未ログインで保護ページを開いた場合は、戻り先を持たせて /login へ送る。
+   */
+  beforeLoad: async ({ location }) => {
+    const sessionUser = await getSessionUserFn()
+
+    if (!sessionUser && !isPublicPath(location.pathname)) {
+      throw redirect({
+        to: '/login',
+        search: { redirect: location.href },
+      })
+    }
+
+    return { sessionUser }
+  },
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -38,16 +58,49 @@ function NavLink({ to, children }: { to: string; children: ReactNode }) {
   )
 }
 
+/** ログイン中のユーザー表示とログアウト */
+function SessionMenu({ email }: { email: string }) {
+  const handleSignOut = async () => {
+    await authClient.signOut()
+    // クライアント側に残った画面の状態ごと捨てたいので、通常の遷移ではなく再読み込みする
+    window.location.href = '/login'
+  }
+
+  return (
+    <div className="ml-auto flex items-center gap-3">
+      <span data-testid="session-email" className="text-[13px] text-text-dim">
+        {email}
+      </span>
+      <button
+        type="button"
+        data-testid="logout"
+        onClick={handleSignOut}
+        className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-[13px] transition-colors duration-150 hover:bg-surface-hover"
+      >
+        ログアウト
+      </button>
+    </div>
+  )
+}
+
 function RootComponent() {
+  const { sessionUser } = Route.useRouteContext()
+
   return (
     <RootDocument>
-      {/* Global Nav */}
-      <nav className="bg-surface border-b border-border px-6 py-2 flex items-center gap-1">
-        <span className="text-[20px] mr-2">📋</span>
-        <NavLink to="/">日報入力</NavLink>
-        <NavLink to="/timesheet">工数管理</NavLink>
-        <NavLink to="/attendance">勤怠管理</NavLink>
-      </nav>
+      {/* Global Nav（ログイン中のみ表示する） */}
+      {sessionUser && (
+        <nav
+          data-testid="global-nav"
+          className="bg-surface border-b border-border px-6 py-2 flex items-center gap-1"
+        >
+          <span className="text-[20px] mr-2">📋</span>
+          <NavLink to="/">日報入力</NavLink>
+          <NavLink to="/timesheet">工数管理</NavLink>
+          <NavLink to="/attendance">勤怠管理</NavLink>
+          <SessionMenu email={sessionUser.email} />
+        </nav>
+      )}
       <Outlet />
     </RootDocument>
   )

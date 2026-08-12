@@ -12,6 +12,7 @@
     "build": "npm -w apps/web run build",
     "start": "npm -w apps/web run start",
     "test": "npm -w apps/web run test",
+    "test:integration": "npm -w apps/web run test:integration",
     "test:e2e": "npm -w apps/web run test:e2e",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -22,6 +23,6 @@
     "db:setup": "npm run db:up && node scripts/wait-for-db.mjs && npm run db:push"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.28.0"
+    "drizzle-kit": "^0.31.10"
   }
 }

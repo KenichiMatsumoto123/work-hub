@@ -9,3 +9,6 @@ test-results/
 
 # TanStack Router auto-generated
 routeTree.gen.ts
+
+# Playwright の認証状態（E2E 実行時に生成）
+**/playwright/.auth/

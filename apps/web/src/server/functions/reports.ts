@@ -1,8 +1,11 @@
 /**
  * 日報データの DB 操作関数
  * createServerFn でラップし、クライアントから直接呼び出し可能
+ *
+ * エンドポイントは直接呼び出せるため、いずれも requireSession を通してログインを必須にする。
  */
 import { createServerFn } from '@tanstack/react-start'
+import { requireSession } from '../middleware/require-session'
 import { db } from '../db'
 import { dailyReports } from '../schema'
 import { eq, and, gte, lt } from 'drizzle-orm'
@@ -27,18 +30,19 @@ function rowToReport(row: typeof dailyReports.$inferSelect): DailyReportData {
   }
 }
 
-export const getAllReportsFn = createServerFn({ method: 'GET' }).handler(
-  async () => {
+export const getAllReportsFn = createServerFn({ method: 'GET' })
+  .middleware([requireSession])
+  .handler(async () => {
     const rows = await db.select().from(dailyReports).orderBy(dailyReports.date)
     const result: Record<string, DailyReportData> = {}
     for (const row of rows) {
       result[row.date] = rowToReport(row)
     }
     return result
-  },
-)
+  })
 
 export const getReportsByMonthFn = createServerFn({ method: 'GET' })
+  .middleware([requireSession])
   .inputValidator((data: { year: number; month: number }) => data)
   .handler(async ({ data }) => {
     const { year, month } = data
@@ -57,6 +61,7 @@ export const getReportsByMonthFn = createServerFn({ method: 'GET' })
   })
 
 export const saveReportFn = createServerFn({ method: 'POST' })
+  .middleware([requireSession])
   .inputValidator((data: DailyReportData) => data)
   .handler(async ({ data }) => {
     const workHours =
@@ -96,6 +101,7 @@ export const saveReportFn = createServerFn({ method: 'POST' })
   })
 
 export const deleteReportFn = createServerFn({ method: 'POST' })
+  .middleware([requireSession])
   .inputValidator((data: { date: string }) => data)
   .handler(async ({ data }) => {
     await db.delete(dailyReports).where(eq(dailyReports.date, data.date))
