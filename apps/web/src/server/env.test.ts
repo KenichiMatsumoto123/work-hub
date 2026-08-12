@@ -2,50 +2,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import {
-  DEV_FALLBACK_DATABASE_URL,
-  findEnvFile,
-  parseEnvValue,
-  resolveDatabaseUrl,
-} from './env'
+import { DEV_FALLBACK_DATABASE_URL, findEnvFile, resolveDatabaseUrl } from './env'
 
 const PROD_URL = 'postgresql://workhub:ab958533@localhost:5432/workhub'
 
-/** リポジトリ直下に .env がある本番相当の構成を作る */
-function createRepo(withEnv = true) {
+/** リポジトリ直下に .env がある本番相当の構成を作る（envContent が null なら .env なし） */
+function createRepo(envContent: string | null = `DATABASE_URL=${PROD_URL}\n`) {
   const root = mkdtempSync(join(tmpdir(), 'work-hub-test-'))
   const webDir = join(root, 'apps', 'web')
   mkdirSync(webDir, { recursive: true })
-  if (withEnv) writeFileSync(join(root, '.env'), `DATABASE_URL=${PROD_URL}\n`)
+  if (envContent !== null) writeFileSync(join(root, '.env'), envContent)
   return { root, webDir }
 }
-
-describe('parseEnvValue', () => {
-  it('値を取り出す', () => {
-    expect(parseEnvValue('DATABASE_URL=postgres://a@b/c', 'DATABASE_URL')).toBe(
-      'postgres://a@b/c',
-    )
-  })
-
-  it('コメント行を無視する', () => {
-    const content = '# DATABASE_URL=commented\nDATABASE_URL=real\n'
-    expect(parseEnvValue(content, 'DATABASE_URL')).toBe('real')
-  })
-
-  it('CRLF・export 接頭辞・引用符に対応する', () => {
-    expect(parseEnvValue('export DATABASE_URL="quoted"\r\n', 'DATABASE_URL')).toBe(
-      'quoted',
-    )
-  })
-
-  it('前方一致する別のキーを拾わない', () => {
-    expect(parseEnvValue('DATABASE_URL_OLD=old\n', 'DATABASE_URL')).toBeNull()
-  })
-
-  it('該当キーが無ければ null', () => {
-    expect(parseEnvValue('OTHER=1\n', 'DATABASE_URL')).toBeNull()
-  })
-})
 
 describe('findEnvFile', () => {
   let repo: ReturnType<typeof createRepo>
@@ -105,8 +73,34 @@ describe('resolveDatabaseUrl', () => {
     }
   })
 
+  it('コメント・引用符・前方一致する別キーが混ざっていても DATABASE_URL を取り出す', () => {
+    const messy = createRepo(
+      [
+        '# DATABASE_URL=postgres://commented-out/db',
+        'DATABASE_URL_OLD=postgres://old/db',
+        `export DATABASE_URL="${PROD_URL}"`,
+      ].join('\r\n'),
+    )
+    try {
+      expect(resolveDatabaseUrl({ NODE_ENV: 'production' }, messy.root)).toBe(PROD_URL)
+    } finally {
+      rmSync(messy.root, { recursive: true, force: true })
+    }
+  })
+
+  it('.env はあるが DATABASE_URL の記述が無い場合は本番で失敗する', () => {
+    const noKey = createRepo('OTHER=1\n')
+    try {
+      expect(() => resolveDatabaseUrl({ NODE_ENV: 'production' }, noKey.root)).toThrow(
+        /DATABASE_URL/,
+      )
+    } finally {
+      rmSync(noKey.root, { recursive: true, force: true })
+    }
+  })
+
   it('本番で .env が見つからない場合は開発用フォールバックを使わず失敗する', () => {
-    const empty = createRepo(false)
+    const empty = createRepo(null)
     try {
       expect(() => resolveDatabaseUrl({ NODE_ENV: 'production' }, empty.webDir)).toThrow(
         /DATABASE_URL/,
@@ -118,7 +112,7 @@ describe('resolveDatabaseUrl', () => {
 
   it('開発時は警告を出して既定の接続先を使う', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const empty = createRepo(false)
+    const empty = createRepo(null)
     try {
       expect(resolveDatabaseUrl({}, empty.webDir)).toBe(DEV_FALLBACK_DATABASE_URL)
       expect(warn).toHaveBeenCalled()

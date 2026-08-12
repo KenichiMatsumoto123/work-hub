@@ -4,9 +4,12 @@
  * 起動方法によって process.cwd() が変わる（npm run start ならリポジトリ直下、
  * `pm2 start apps/web/serve.mjs` なら pm2 を実行したディレクトリ）ため、
  * 固定の相対パスではなく親ディレクトリを遡って .env を探す。
+ *
+ * .env のパース自体は Node 組み込みの util.parseEnv に任せる。
  */
 import { existsSync, readFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
+import { parseEnv } from 'util'
 
 /** .env が無い場合の開発用フォールバック（.env.example と docker-compose に合わせる） */
 export const DEV_FALLBACK_DATABASE_URL =
@@ -24,29 +27,6 @@ export function findEnvFile(startDir: string): string | null {
     if (parent === dir) return null
     dir = parent
   }
-}
-
-/** .env の内容から key の値を取り出す（コメント・export 接頭辞・引用符に対応） */
-export function parseEnvValue(content: string, key: string): string | null {
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-
-    const body = line.startsWith('export ') ? line.slice('export '.length).trim() : line
-    const eq = body.indexOf('=')
-    if (eq === -1) continue
-    if (body.slice(0, eq).trim() !== key) continue
-
-    const value = body.slice(eq + 1).trim()
-    const quoted =
-      value.length >= 2 &&
-      ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'")))
-
-    return quoted ? value.slice(1, -1) : value
-  }
-
-  return null
 }
 
 /**
@@ -72,7 +52,7 @@ export function resolveDatabaseUrl(
     envPath = findEnvFile(dir)
     if (!envPath) continue
 
-    const value = parseEnvValue(readFileSync(envPath, 'utf-8'), 'DATABASE_URL')
+    const value = parseEnv(readFileSync(envPath, 'utf-8')).DATABASE_URL
     if (value) return value
   }
 

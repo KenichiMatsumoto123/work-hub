@@ -426,6 +426,8 @@ pm2 restart work-hub
 
 なお、`.env` の探索は起動ディレクトリから親方向へ遡って行われるため、`pm2 start apps/web/serve.mjs` をリポジトリ直下で実行しても `npm run start` でも同じ `.env` が読まれる。本番（`serve.mjs` 起動）では `DATABASE_URL` を解決できない場合、開発用の接続先にフォールバックせず起動時にエラーとなる。
 
+`drizzle-kit`（マイグレーション）も同じ解決処理を使うため、環境変数を export していなくても `.env` があれば実行できる。
+
 ---
 
 ## TODO
