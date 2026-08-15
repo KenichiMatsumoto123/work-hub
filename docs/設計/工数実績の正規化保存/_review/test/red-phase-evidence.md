@@ -105,6 +105,31 @@ Round 1 の Major 6 件（FIND-001〜004・B01・B02）＋ Minor 2 件（FIND-00
 
 **独立検証の結果（Round 2 完了時に更新）：**FIND-001〜003 の修正が「違反実装を実際に落とす」ことは、Phase 6 Round 2 のレーンA が独立に実測して確認した。まず正しい実装で 24 件全 PASS のベースラインを取ったうえで違反を 1 つずつ混ぜており、「元から FAIL していただけ」と区別できている。測定後の復元も `git diff` が空であることで確認済み。詳細は `findings-round2.md`。
 
+## Phase 6 収束時点の最終値（2026-08-15・司令塔が実測）
+
+Phase 6 は Round 5 で収束した（Critical 0・Major 0）。収束時点の数値：
+
+| 項目 | 結果 |
+|---|---|
+| `npm run check-types` | **PASS** |
+| `npm run test`（単体・結合内部） | **132 FAIL / 81 PASS（213 件）** |
+| `npm run test:integration`（DB込み） | **56 FAIL / 19 PASS（75 件）** |
+| `npm run db:push` | **`No changes detected`** |
+| DB 残留 | `daily_reports` / `time_entries` / `clients` / `projects` / `tasks` すべて **0 件** |
+| `git status` | **clean** |
+
+**Red Phase 開始時（132 FAIL / 63 PASS）からの PASS 増加 +18 件はすべてテスト基盤の追加分**であり、SUT に対する新規テストの FAIL 件数 132 は一貫して変化していない：
+
+| 追加分 | 件数 | 由来 |
+|---|---|---|
+| `reports.test.ts` の走査ヘルパー回帰テスト | 1 | Round 1 FIND-B09 |
+| `report-db-helpers.test.ts`（`selectDeleteTargetIds`） | 7 | Round 3 FIND-R3B-01（5 件）＋ Round 4 FIND-R4-M01（2 件） |
+| `assert-not-dev-database.test.ts` | 10 | Round 4 FIND-R4-M02 |
+
+いずれも**テスト基盤自身の回帰テスト**であり、SUT に依存しないため Red Phase でも PASS するのが正しい。
+
+**実行順序への非依存も確認済み**（レーンC が `--sequence.shuffle` 付きで全体実行し 132 FAIL / 81 PASS が通常順と完全一致）。
+
 ## 補足
 
 - **E2E（観点表 2 章 E2E-1〜E2E-7）はコード化していない。**Phase 5 は仕様凍結までで、コード化・実行は Phase 10 の担当（フロー正典「E2E：仕様凍結とコード化の分離」）
