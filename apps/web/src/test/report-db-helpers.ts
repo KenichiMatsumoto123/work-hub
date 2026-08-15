@@ -5,12 +5,14 @@
  * - 規定 1：マスタ名は `IT<節2桁><観点2桁>-` を接頭辞に持つ
  * - 規定 2：件数の主張は接頭辞で絞った集合に対して行う（テーブル全体を数えない）
  * - 規定 3：後始末は `time_entries` → `daily_reports` → `tasks` → `projects` → `clients` の順。
- *           マスタは接頭辞一致だけでなく親子を辿って削除する
+ *           マスタは接頭辞一致だけでなく親子を辿って削除する。`time_entries` / `daily_reports`
+ *           の日付ベース削除は「保存前に存在しなかった行のみ削除する」（下記「FIND-C01 の防御」参照）
  * - 規定 4：接頭辞を付けられない固定名は「保存前に存在しなかった場合のみ削除する」
  *
  * `truncateTables()` は使わない（開発用 DB のデータを消さないため）。
  */
 import postgres from 'postgres'
+import { beforeAll } from 'vitest'
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm'
 import { db } from '../server/db'
 import { resolveDatabaseUrl } from '../server/env'
@@ -61,11 +63,89 @@ export async function advisoryLockCount(
   return rows[0].n
 }
 
-/** 指定した日付の `time_entries` → `daily_reports` を削除する（規定 3 の前半） */
+// ---------------------------------------------------------------------------
+// FIND-C01（Critical）の防御：日付ベース削除が利用者の実データを破壊しないようにする
+//
+// 改訂前は `deleteByDates` が `WHERE date IN (...)` で無条件 DELETE していたため、
+// 利用者の開発 DB に同じ日付の日報・実績があるとそれを破壊した（規定 4 が固定名について
+// 警告していたのと同型の事故）。観点表 1.0 節 規定 3（2026-08-15 改訂）に従い、
+// 「テストが書き込む前に存在しなかった行だけを削除する」防御をヘルパー内部で完結させる。
+//
+// スナップショットのタイミング：
+// Vitest はテストファイルごとにモジュールを再読込する（`fileParallelism: false` かつ既定の
+// `isolate: true`）ため、このモジュールの直下で呼ぶ `beforeAll` は「このヘルパーを import した
+// テストファイルにつき 1 回」実行される。import 時点でこのモジュールのトップレベルコードが
+// テストファイル自身のトップレベルコードより先に評価されるため、この `beforeAll` は
+// テストファイル自身が登録する `beforeAll`（reports-transaction.integration.test.ts の
+// T 計測用書き込みを含む）より先に実行される。したがって「そのファイルの最初の書き込みより前」の
+// time_entries / daily_reports の全行 id を確実に記録できる。
+//
+// 安全側の方針（無条件削除への退行を避ける）：
+// - スナップショットが未取得の状態で `deleteByDates` が呼ばれた場合は、削除を一切行わない
+//   （「対象日の全行を保存前から存在した行とみなす」という安全側の解釈であり、無条件削除には戻さない）
+// - プロセスが `beforeAll` 実行後・後始末前に強制終了した場合、次回の実行では新たなスナップショットが
+//   その時点の DB 状態（クラッシュ由来の残留行を含む）を基準にする。残留行は「保存前から存在した行」
+//   として扱われ、以後の実行でも削除されない（規定 4 の `cleanupFixedNames` と同じトレードオフ。
+//   実データを壊すより、まれに残留行が残るほうを選ぶ）
+// ---------------------------------------------------------------------------
+
+type PreWriteSnapshot = {
+  timeEntryIds: Set<string>
+  dailyReportIds: Set<string>
+}
+
+let preWriteSnapshot: PreWriteSnapshot | null = null
+
+async function capturePreWriteSnapshot(): Promise<void> {
+  const [teRows, drRows] = await Promise.all([
+    testDb.select({ id: timeEntries.id }).from(timeEntries),
+    testDb.select({ id: dailyReports.id }).from(dailyReports),
+  ])
+  preWriteSnapshot = {
+    timeEntryIds: new Set(teRows.map((row) => row.id)),
+    dailyReportIds: new Set(drRows.map((row) => row.id)),
+  }
+}
+
+// このヘルパーを import した各テストファイルの最初のテスト（および最初の `beforeAll`）より前に、
+// 1 回だけスナップショットを取る。
+beforeAll(capturePreWriteSnapshot)
+
+/**
+ * 指定した日付の `time_entries` → `daily_reports` のうち、
+ * **保存前スナップショットに無い（＝テストが書き込んだ）行だけ**を削除する（規定 3 の前半）。
+ */
 export async function deleteByDates(dates: string[]): Promise<void> {
   if (dates.length === 0) return
-  await testDb.delete(timeEntries).where(inArray(timeEntries.date, dates))
-  await testDb.delete(dailyReports).where(inArray(dailyReports.date, dates))
+
+  if (!preWriteSnapshot) {
+    // 安全側：スナップショット未取得なら無条件削除に退行せず何もしない
+    console.warn(
+      '[report-db-helpers] deleteByDates: 保存前スナップショットが未取得のため削除をスキップしました（対象日: ' +
+        dates.join(', ') +
+        '）',
+    )
+    return
+  }
+  const { timeEntryIds, dailyReportIds } = preWriteSnapshot
+
+  const teRows = await testDb
+    .select({ id: timeEntries.id })
+    .from(timeEntries)
+    .where(inArray(timeEntries.date, dates))
+  const teTargets = teRows.map((row) => row.id).filter((id) => !timeEntryIds.has(id))
+  if (teTargets.length > 0) {
+    await testDb.delete(timeEntries).where(inArray(timeEntries.id, teTargets))
+  }
+
+  const drRows = await testDb
+    .select({ id: dailyReports.id })
+    .from(dailyReports)
+    .where(inArray(dailyReports.date, dates))
+  const drTargets = drRows.map((row) => row.id).filter((id) => !dailyReportIds.has(id))
+  if (drTargets.length > 0) {
+    await testDb.delete(dailyReports).where(inArray(dailyReports.id, drTargets))
+  }
 }
 
 /**

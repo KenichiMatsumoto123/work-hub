@@ -511,11 +511,23 @@ describe('5-10 日付検証（AC-73・AC-74・AC-76〜AC-78・AC-83〜AC-85）',
     '0050-02-29',
   ]
   const ACCEPTED = ['2028-02-29', '2000-02-29', '0004-02-29', '0050-03-01']
-  /** 拒否されるはずの入力が誤って書き込まれた場合の後始末対象（'2000-1-1' は 2000-01-01 として解釈される） */
-  const CLEANUP_DATES = [...ACCEPTED, '2000-01-01']
+  /**
+   * 5-10 の寛容パース対応表（観点表 1.0 節 規定 5・Phase 6 Round 2 FIND-B02・FIND-B11）。
+   * `new Date()` が REJECTED の入力をロールオーバーして到達しうる日付。既知データを仕込み、
+   * 拒否ループの前後で不変であることを判定する。`0050-03-01` は既に ACCEPTED の対象日でもある
+   */
+  const ROLLOVER_SEED_DATES = [
+    '2000-01-01', // '2000-1-1' → 2000-01-01
+    '2026-03-02', // '2026-02-30' → 2026-03-02
+    '2026-03-01', // '2026-02-29' → 2026-03-01
+    '1900-03-01', // '1900-02-29' → 1900-03-01
+    '0050-03-01', // '0050-02-29' → 0050-03-01（ACCEPTED と重複）
+  ]
+  /** 拒否されるはずの入力が誤って書き込まれた場合の後始末対象 */
+  const CLEANUP_DATES = [...ACCEPTED, ...ROLLOVER_SEED_DATES]
 
   beforeAll(async () => {
-    await assertDatesAreReal(ACCEPTED)
+    await assertDatesAreReal([...ACCEPTED, ...ROLLOVER_SEED_DATES])
   })
 
   function reportFor(date: unknown): unknown {
@@ -546,19 +558,37 @@ describe('5-10 日付検証（AC-73・AC-74・AC-76〜AC-78・AC-83〜AC-85）',
     })
 
     it('拒否される日付は保存も削除も構造エラーになり、DB にも触れない', async () => {
-      // '2000-1-1' は PostgreSQL に 2000-01-01 として受理される（既に CLEANUP_DATES にある日付）。
-      // 日付検証を DB アクセスの後に置いた実装がこの日の既存実績を消さないことを確認する（FIND-B02）
-      const SEED_DATE = '2000-01-01'
-      const SEED_TASK = `${PREFIX}事前タスク`
-      await saveReport(
-        makeSingleBlockReport(SEED_DATE, `${PREFIX}事前A社`, [
-          { label: `${PREFIX}事前PJ`, name: SEED_TASK, actualHours: '3.5' },
+      // 寛容パース対応表（規定 5）が挙げる 5 経路すべてに既知データを仕込む。
+      // 日付検証を DB アクセスの後に置いた実装は、ロールオーバー先の実績を消してから
+      // 正しいメッセージを投げるため、これらのうちどれかが変化していればここで落ちる（FIND-B02・FIND-B11）
+      const seeds = await Promise.all(
+        ROLLOVER_SEED_DATES.map(async (date, index) => {
+          const taskName = `${PREFIX}事前タスク${index}`
+          await saveReport(
+            makeSingleBlockReport(date, `${PREFIX}事前A社${index}`, [
+              { label: `${PREFIX}事前PJ${index}`, name: taskName, actualHours: '3.5' },
+            ]),
+          )
+          return { date, taskName }
+        }),
+      )
+      const snapshotAll = async () =>
+        Object.fromEntries(
+          await Promise.all(
+            seeds.map(async ({ date, taskName }) => [
+              date,
+              { summary: await entrySummaryOfDate(date), rows: await entriesByTitle(date) },
+            ]),
+          ),
+        )
+      const expectedSeedState = Object.fromEntries(
+        seeds.map(({ date, taskName }) => [
+          date,
+          { summary: { count: 1, total: 3.5 }, rows: { [taskName]: '3.50' } },
         ]),
       )
-      const before = {
-        summary: await entrySummaryOfDate(SEED_DATE),
-        rows: await entriesByTitle(SEED_DATE),
-      }
+
+      const before = await snapshotAll()
 
       const observed: Record<string, { save: string; delete: string }> = {}
       for (const date of REJECTED) {
@@ -568,28 +598,50 @@ describe('5-10 日付検証（AC-73・AC-74・AC-76〜AC-78・AC-83〜AC-85）',
         }
       }
 
+      const after = await snapshotAll()
+
+      expect({ observed, before, after }).toEqual({
+        observed: Object.fromEntries(
+          REJECTED.map((date) => [date, { delete: 構造エラー, save: 構造エラー }]),
+        ),
+        before: expectedSeedState,
+        after: expectedSeedState,
+      })
+    })
+
+    it('data 自体が null / undefined でも構造エラーになる（AC-76）', async () => {
+      // deleteReport(date) は常に { data: { date } } に包むため data === null の経路を通れない。
+      // data をラップせず直接渡す deleteReportRaw で検証する（FIND-B01）。
+      // メッセージ一致だけでは「構造検証の前に DB 操作を行い、その後で正しいメッセージを投げる」実装を
+      // 見逃すため、直前の REJECTED ループ（FIND-B02）と同じ形で DB の不変性も確認する（FIND-B10）
+      const SEED_DATE = '2000-01-01'
+      const SEED_TASK = `${PREFIX}null事前タスク`
+      await saveReport(
+        makeSingleBlockReport(SEED_DATE, `${PREFIX}null事前A社`, [
+          { label: `${PREFIX}null事前PJ`, name: SEED_TASK, actualHours: '3.5' },
+        ]),
+      )
+      const before = {
+        summary: await entrySummaryOfDate(SEED_DATE),
+        rows: await entriesByTitle(SEED_DATE),
+      }
+
+      const observed = {
+        saveNull: await errorMessageOf(() => saveReport(null)),
+        deleteNull: await errorMessageOf(() => deleteReportRaw(null)),
+        deleteUndefined: await errorMessageOf(() => deleteReportRaw(undefined)),
+      }
+
       const after = {
         summary: await entrySummaryOfDate(SEED_DATE),
         rows: await entriesByTitle(SEED_DATE),
       }
 
       expect({ observed, before, after }).toEqual({
-        observed: Object.fromEntries(
-          REJECTED.map((date) => [date, { delete: 構造エラー, save: 構造エラー }]),
-        ),
+        observed: { saveNull: 構造エラー, deleteNull: 構造エラー, deleteUndefined: 構造エラー },
         before: { summary: { count: 1, total: 3.5 }, rows: { [SEED_TASK]: '3.50' } },
         after: { summary: { count: 1, total: 3.5 }, rows: { [SEED_TASK]: '3.50' } },
       })
-    })
-
-    it('data 自体が null / undefined でも構造エラーになる（AC-76）', async () => {
-      // deleteReport(date) は常に { data: { date } } に包むため data === null の経路を通れない。
-      // data をラップせず直接渡す deleteReportRaw で検証する（FIND-B01）
-      expect({
-        saveNull: await errorMessageOf(() => saveReport(null)),
-        deleteNull: await errorMessageOf(() => deleteReportRaw(null)),
-        deleteUndefined: await errorMessageOf(() => deleteReportRaw(undefined)),
-      }).toEqual({ saveNull: 構造エラー, deleteNull: 構造エラー, deleteUndefined: 構造エラー })
     })
 
     it('通過する日付は日付検証で止まらない', async () => {
