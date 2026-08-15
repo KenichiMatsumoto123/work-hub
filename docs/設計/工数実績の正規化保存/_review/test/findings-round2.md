@@ -165,3 +165,7 @@ await db.delete(dailyReports).where(eq(dailyReports.date, data.date))
 - **緩和策：**`AGENTS.md` が既に定める「`DATABASE_URL` を環境変数で上書きして実行する」に従い、開発用 DB と分離して実行すること。Phase 7 の人間レビューではこの点を明示する
 
 **Round 3 で敵対的に判断させる。**司令塔の単独判断で「テストの意図どおりだから問題なし」と結論づけない。
+
+### RESID-01 の評価は不完全だった（Round 3 レーンA が指摘・司令塔が実測で確認）
+
+上記の「Phase 8 で AC-73 の日付検証が入れば自然に解消する」という司令塔の評価は、**DELETE 経路にしか当てはまらない**。より深刻な UPSERT（上書き）経路が残っていることを Round 3 レーンA が指摘し、司令塔が実測で確認した。詳細は `findings-round3.md` の FIND-R3-C01 を参照。
