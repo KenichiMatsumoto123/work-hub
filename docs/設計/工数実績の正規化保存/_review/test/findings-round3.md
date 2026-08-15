@@ -59,7 +59,100 @@
 - FIND-R3-M02：`preWriteSnapshot === null` のフォールバック分岐は、Vitest の `beforeAll` 失敗時セマンティクスとファイル単位のモジュール分離を踏まえると通常運用では到達しにくく、コメントが想定するほどの安全網ではない
 - FIND-R3-M03：スナップショット取得後・削除実行前に、テストとは無関係な**実利用者の新規保存**が同じ日付に発生すると、その正規の行がテスト由来と誤認されて削除されうる（1 点スナップショットのため）
 
-## 未実施
+---
 
-- **レーンB（仕様対応：MC-6・MC-4）**・**レーンC（セキュリティと証拠：MC-2・3・5・9）**は未実施。FIND-R3-C01 の対応でテストコードが再び変わるため、**修正後のコードに対して実施する**
-- レーンA が「要 DB 実測」として申し送った FIND-R3-C01 の実地検証は、**司令塔が上表のとおり実測して確定させた**
+# Round 3 後半（規定 10 の二重ガード実装後・レーンB / レーンC）
+
+- **対象コミット**：`f436f78`（規定 10 の二重ガード実装）
+- **方式**：レーンC が DB を占有し、レーンB は DB 不使用の条件で並行実行（Round 2 の相互汚染を受けた方針変更）
+- **判定**：**FAIL**（Critical 1・Major 2・Minor 6）
+
+## AC 対応マトリクス（レーンB・更新後）
+
+| 区分 | Round 2 | Round 3 |
+|---|---|---|
+| ✅ | 74 | **76** |
+| ⚠️ | 2（AC-73・AC-74） | **0** |
+| ❌ | 0 | 0 |
+| N/A | 8 | 8 |
+
+**FIND-B10・FIND-B11 は解消。**AC-74 が名指しする `2026-02-30` → `2026-03-02` の経路について、違反実装がメッセージだけ正しく整えても `after` の DB 状態が期待値と不一致になり FAIL する構造であることをレーンB が論証した。
+
+## Critical
+
+### FIND-LC-C01: ガードB の DB 名判定が、パス省略・末尾スラッシュのみの接続文字列で無効化される
+
+- **観点 / レーン**：⑤ セキュリティ・品質観点（MC-2・MC-5）／レーンC が発見 → **司令塔が実測で確認**
+- **重大度**：**Critical**
+- **ファイル**：`apps/web/src/test/report-db-helpers.ts:40-60`（`assertNotDevDatabase`）
+- **問題**：`assertNotDevDatabase` は `new URL(url).pathname.replace(/^\//, '')` で DB 名を取り、`'workhub'` と厳密一致で判定する。しかし postgres-js の DB 名解決は別のフォールバック連鎖を持つ：
+
+  ```js
+  database: o.database || o.db || (url.pathname || '').slice(1) || env.PGDATABASE || user
+  ```
+
+  `DATABASE_URL` に**パス部（`/dbname`）が無い、または末尾スラッシュだけ**の場合、`pathname` は空文字になり、postgres-js は `PGDATABASE` 未設定なら**接続ユーザー名と同名の DB（`workhub`）へ接続する**。一方ガードBは `dbName === ''` となり `'workhub' !== ''` のため**素通しする。**
+
+- **司令塔による実測（2026-08-15）**：
+
+  | `DATABASE_URL` | `pathname` | ガードB発火 |
+  |---|---|---|
+  | `postgres://workhub:workhub_dev@localhost:5432` | `""` | **false（素通し）** |
+  | `postgres://workhub:workhub_dev@localhost:5432/` | `""` | **false（素通し）** |
+  | `postgres://workhub:workhub_dev@localhost:5432/workhub` | `"workhub"` | true |
+
+  さらに実際の postgres-js で `postgres('postgres://workhub:workhub_dev@localhost:5433')` を接続したところ、エラーは **`database "workhub" does not exist`（SQLSTATE 3D000）**。**接続先として実際に `workhub` を試みている**ことを確認した。本コンテナには `workhub` DB が無いため失敗するが、docker-compose で `workhub` を立てている開発者のマシンでは**そのまま接続が成立する**。
+
+- **影響**：規定 10 は「ガードA が対象外とする日付・将来の GUARD_DATES 記載漏れに対しても独立に止まる」ことを狙って A・B を併用する設計だった。本バグにより「`DATABASE_URL` の末尾に `/dbname` を書き忘れる」という**起こりやすい入力ミス 1 つで二重ガードが単一ガードに縮退する**
+- **推奨対応**：DB 名の抽出を postgres-js のフォールバック連鎖（`pathname → PGDATABASE → user`）に合わせて再実装する。あわせて「解析不能ならチェックしない」という現状の fail-open な設計も fail-closed に改める
+- **戻り先**：Phase 5（`test-builder`）。**規定 10 のロジック実装上のバグであり、規定 10 自体の再改訂や仕様判断を要さないため人間ゲートへの再エスカレーションは不要**
+
+## Major
+
+### FIND-R3B-01: ガードA が規定 3（FIND-C01 の防御）を実質的に検証不能にしている
+
+- **観点 / レーン**：③④ の交差（司令塔が指定した MC-1 の論点）／レーンB
+- **重大度**：Major
+- **ファイル**：`apps/web/src/test/report-db-helpers.ts`（`beforeAll` の発火順序・`deleteByDates` の id フィルタ）
+- **問題**：ガードA は全対象日付が空であることを保証してからテストを実行する。したがって**ガードA が通過した実行では対象日の `preWriteSnapshot` は構造的に必ず空集合**になり、`!timeEntryIds.has(id)` は常に真＝全件削除と等価になる。FIND-C01 で入れた「保存前から存在した行は削除しない」分岐は**どのテスト実行でも到達しない**
+- **影響**：実データ保護自体はガードA/B の多重防御で守られているが、**多重防御の一角（規定 3）が正しく機能し続けているかを検証する自動テストが存在しない。**将来この分岐が無条件 `DELETE WHERE date IN (...)` に静かに退行しても、どのテストも落ちない（検出力の空洞化）
+- **推奨対応**：id フィルタのロジックを純粋関数に切り出し、スナップショットを注入する単体テスト（`npm run test` レベル・DB 不要）を追加する。**凍結済み成果物の変更は不要**（Round 1 で `hasRequireSessionMiddleware` の回帰テストを観点表の変更なしに追加した前例と同じ扱い）
+- **戻り先**：Phase 5（`test-builder`）
+
+### FIND-LC-M01: ガードの保護範囲が `import` に依存しており、将来の書き込み経路を構造的に強制できない
+
+- **観点 / レーン**：⑤（MC-5）／レーンC
+- **重大度**：Major
+- **ファイル**：`apps/web/vitest.integration.config.ts`（`setupFiles` 未設定）／`apps/web/src/test/report-db-helpers.ts`
+- **問題**：ガードA・B はいずれも `report-db-helpers.ts` を **import した場合にのみ**発動する。`vitest.integration.config.ts` に `setupFiles` が無く、**プロジェクト全体へ強制する仕組みが無い**。現状 5 ファイルすべてが import しているため実害は無いが、将来ヘルパーを経由せず `../db` と `../functions/reports` を直接 import する結合テストが足されると、**GUARD_DATES 内の日付であってもガードが一切発動しない**
+- **影響**：規定 10 が「機構で強制する」ことを目的にしているのに対し、実装は「規約としてヘルパーを使うことを期待する」形にとどまっている
+- **推奨対応**：ガードB（データ状態に依存せず判定できる）を `vitest.integration.config.ts` の `setupFiles` へ移し、`*.integration.test.ts` 全ファイルに無条件適用する。ガードA はファイル単位スナップショットが前提のため設計変更を要するので、本ラウンドでは代償措置（`AGENTS.md` への注意書き）でよい
+- **戻り先**：Phase 5（`test-builder`）
+
+## レーンC が PASS と判定した項目（実測の裏付け）
+
+| 検証 | 実測 |
+|---|---|
+| ガードB の他形式による迂回 | 大文字化 `/WORKHUB`・`?options=`・UNIX ソケット形 `postgres:///workhub?host=...` を実測。**追加の迂回経路は発見されず**（pathname は正しく取れる） |
+| `auth.integration.test.ts` がガードB対象外である実害 | **実害なし。**`daily_reports` / `time_entries` に一切触れず、`TEST_EMAILS` に基づく id 絞り込み削除を独自実装済み |
+| GUARD_DATES の**動的**網羅チェック | `daily_reports` / `time_entries` に AFTER INSERT/UPDATE トリガーを仕込んでフル実行し、実際に書き込まれた日付を収集。**観測 66 日付・GUARD_DATES 外への書き込みゼロ** |
+| ガードA throw 時の後始末漏れ | throw はスナップショット直後・書き込み前に起きるため**新規残留なし**。行は id/date/note/raw_data すべて不変。5 ファイルすべてが独立にガードを効かせることも確認 |
+| CI の偽陽性 | `ci.yml` の `workhub_test` は判定に一致せず通過。CI は毎回空 DB スタート。**偽陽性なし** |
+| 非 GUARD_DATES 日付での既存データ無傷 | `2050-06-15` に接頭辞なしの 5 行を投入してフル実行 → **id・内容とも完全一致・新規残留なし** |
+| `requireSession` の退行検出 | worktree に 3 変異を注入。**3 変異とも狙った関数のテストだけが FAIL**、他は PASS |
+| Red Phase 証拠の検算 | 単体 132 FAIL / 64 PASS（196）、結合 56 FAIL / 19 PASS（75）、`db:push` = `No changes detected`、import エラー 0 件、スタブ 2 ファイルに実ロジック混入なし（`AUTO_CLEAR_MS = 2000`）、S-1〜S-3 未適用、実行後の残留 0 件・advisory lock 0 件 |
+
+## Minor（1行）
+
+- FIND-R3-M01 / FIND-LC-M02：規定 3 の文言「対象日付の id を採取」と実装（全行 SELECT）の不一致。安全側への乖離
+- FIND-R3-M02 / FIND-LC-M03：`preWriteSnapshot === null` フォールバック分岐は通常運用では到達しにくく、安全網としての実効性が低い
+- FIND-R3-M03 / FIND-LC-M04：スナップショット取得後・削除前の TOCTOU で実利用者の新規保存を誤削除しうるレース。ガードA（開始時点のみのチェック）でも解消していない
+- FIND-R3B-M01：5-10 の ROLLOVER 系テストは `time_entries` 由来の値しか before/after 判定しておらず、`daily_reports` の `note` / `raw_data` の内容破壊は同テストでは検出できない
+- FIND-LC-M05：GUARD_DATES の動的網羅チェックは `daily_reports` のみで成立。`time_entries` は Phase 8 未実装で書き込みが 0 件のため未検証。**Phase 8 の T-1 実装後に同じ手法（トリガーによる動的観測）で再検証すること**
+- FIND-R3B-M02：Round 3 前半の Minor は未修正のまま残置（担当外）
+
+## 収束判定（Round 3）
+
+**未収束（Critical 1・Major 2）。**Round 3 / 上限 5 周。
+
+**3 件とも凍結済み成果物の変更を要さない**ため、人間ゲートへの再エスカレーションは不要と判断する（FIND-LC-C01 は規定 10 の実装バグ、FIND-R3B-01 と FIND-LC-M01 はテスト・設定の追加）。`test-builder` に修正させて Round 4 の差分レビューへ進む。
