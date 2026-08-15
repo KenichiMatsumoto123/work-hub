@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Input } from '~/components/ui/Input'
 import { Button } from '~/components/ui/Button'
 import { Label } from '~/components/ui/Label'
@@ -12,6 +12,12 @@ import { generateDailyReport, getProjectSummary } from '~/lib/report-generator'
 import { generateId } from '~/lib/time-utils'
 import { storage, session, reportStorage } from '~/lib/storage'
 import { defaultTask } from '~/lib/defaults'
+import {
+  savedMsgReducer,
+  runSavedMsgEffects,
+  initialSavedMsgState,
+  type SavedMsgEvent,
+} from '~/lib/saved-msg'
 import type { DailyReportData, Project } from '~/lib/types'
 import '~/styles/app.css'
 
@@ -45,7 +51,26 @@ function TabButton({
 function HomePage() {
   const [data, setData] = useState<DailyReportData>(defaultDailyReport())
   const [activeTab, setActiveTab] = useState<TabId>('input')
-  const [savedMsg, setSavedMsg] = useState('')
+
+  // 保存メッセージ（savedMsg）の状態管理は ~/lib/saved-msg.ts の reducer に委ねる
+  // （設計書「UI の変更（エラー表示）> 実装構造の規定」）。コンポーネント側は
+  // イベントの生成（ok 分岐）と、reducer の出力を state へ反映するだけの薄い層にする。
+  const savedMsgStateRef = useRef(initialSavedMsgState)
+  const [savedMsgState, setSavedMsgState] = useState(initialSavedMsgState)
+
+  const sendSavedMsgEvent = (event: SavedMsgEvent) => {
+    const result = savedMsgReducer(savedMsgStateRef.current, event)
+    const timerId = runSavedMsgEffects(result.effects, {
+      timers: {
+        setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+        clearTimeout: (id) => window.clearTimeout(id),
+      },
+      dispatch: sendSavedMsgEvent,
+    })
+    const nextState = { ...result.state, timerId }
+    savedMsgStateRef.current = nextState
+    setSavedMsgState(nextState)
+  }
 
   const update = <K extends keyof DailyReportData>(field: K, val: DailyReportData[K]) =>
     setData((prev) => ({ ...prev, [field]: val }))
@@ -101,23 +126,20 @@ function HomePage() {
 
   const saveTemplate = () => {
     const ok = storage.set('daily-report-latest', JSON.stringify(data))
-    setSavedMsg(ok ? 'テンプレート保存済 ✓' : '保存エラー')
-    setTimeout(() => setSavedMsg(''), 2000)
+    sendSavedMsgEvent(ok ? { type: 'templateSaveSucceeded' } : { type: 'templateSaveFailed' })
   }
 
   const saveReport = async () => {
     if (!data.date) {
-      setSavedMsg('日付を入力してください')
-      setTimeout(() => setSavedMsg(''), 2000)
+      sendSavedMsgEvent({ type: 'dateMissing' })
       return
     }
     const result = await reportStorage.save(data)
-    setSavedMsg(
-      result.ok
-        ? `${data.date} の日報を保存しました ✓`
-        : `保存エラー${result.error ? `: ${result.error}` : ''}`
-    )
-    setTimeout(() => setSavedMsg(''), 2000)
+    if (result.ok) {
+      sendSavedMsgEvent({ type: 'reportSaveSucceeded', date: data.date })
+    } else {
+      sendSavedMsgEvent({ type: 'reportSaveFailed', message: result.error ?? '' })
+    }
   }
 
   const updateProject = (idx: number, proj: Project) => {
@@ -214,7 +236,18 @@ function HomePage() {
             <div className="flex justify-between items-center">
               <h2 className="text-base font-semibold text-text-dim">プロジェクト・タスク入力</h2>
               <div className="flex gap-2 items-center">
-                {savedMsg && <span className="text-xs text-success">{savedMsg}</span>}
+                {savedMsgState.message && (
+                  <span
+                    data-testid="saved-msg"
+                    className={
+                      savedMsgState.isError
+                        ? 'text-xs text-danger whitespace-pre-line'
+                        : 'text-xs text-success'
+                    }
+                  >
+                    {savedMsgState.message}
+                  </span>
+                )}
                 <Button variant="default" onClick={saveTemplate}>
                   💾 テンプレ保存
                 </Button>

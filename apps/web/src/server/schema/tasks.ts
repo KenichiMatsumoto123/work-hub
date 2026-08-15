@@ -9,6 +9,7 @@ import {
   timestamp,
   index,
   check,
+  unique,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { clients, projects, taskCategories, technologyTags } from './master'
@@ -67,6 +68,12 @@ export const tasks = pgTable(
       'chk_task_type_project',
       sql`${table.type} != 'project' OR ${table.projectId} IS NOT NULL`,
     ),
+    // S-3: タスクの名寄せキーの重複作成を防ぐ。project_id / client_id が
+    // ともに NULL の adhoc タスク（AC-23・AC-25）も重複と判定させるため
+    // NULLS NOT DISTINCT を使う（設計書「スキーマ変更一覧」）
+    unique('tasks_pj_cl_title_unique')
+      .on(table.projectId, table.clientId, table.title)
+      .nullsNotDistinct(),
   ],
 )
 

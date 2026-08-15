@@ -5,10 +5,6 @@
  * 副作用（setTimeout / clearTimeout）は関数の中で実行せず、
  * 「実行すべき副作用の一覧」を戻り値として返す純粋関数（reducer）と、
  * タイマー API と dispatch を注入して副作用を実行する関数に分ける。
- *
- * 【Red Phase のスタブ】
- * Phase 5 時点では「シグネチャ ＋ 固定ダミー返却」のみ。実ロジックは Phase 8 で実装する。
- * ダミー値は「どのテストの期待値とも一致しない」ことだけを目的に選んでいる。
  */
 
 /** 予約中の自動消去タイマー ID（未予約なら null） */
@@ -57,14 +53,70 @@ export const initialSavedMsgState: SavedMsgState = {
   timerId: null,
 }
 
+/** 予約中タイマーがあれば clearTimeout 副作用を積む（無ければ何もしない） */
+function clearPendingTimer(state: SavedMsgState, effects: SavedMsgEffect[]): void {
+  if (state.timerId !== null) {
+    effects.push({ type: 'clearTimeout', id: state.timerId })
+  }
+}
+
 /** イベントに対する次の状態と副作用を返す純粋関数 */
-export function savedMsgReducer(
-  _state: SavedMsgState,
-  _event: SavedMsgEvent,
-): SavedMsgResult {
-  return {
-    state: { message: '__STUB__', isError: false, timerId: null },
-    effects: [{ type: 'clearTimeout', id: -1 }],
+export function savedMsgReducer(state: SavedMsgState, event: SavedMsgEvent): SavedMsgResult {
+  switch (event.type) {
+    case 'reportSaveSucceeded': {
+      const effects: SavedMsgEffect[] = []
+      clearPendingTimer(state, effects)
+      effects.push({ type: 'setTimeout', ms: AUTO_CLEAR_MS })
+      return {
+        state: { message: `${event.date} の日報を保存しました ✓`, isError: false, timerId: null },
+        effects,
+      }
+    }
+    case 'reportSaveFailed': {
+      const effects: SavedMsgEffect[] = []
+      clearPendingTimer(state, effects)
+      return {
+        state: {
+          message: `保存エラー${event.message ? `: ${event.message}` : ''}`,
+          isError: true,
+          timerId: null,
+        },
+        effects,
+      }
+    }
+    case 'templateSaveSucceeded': {
+      const effects: SavedMsgEffect[] = []
+      clearPendingTimer(state, effects)
+      effects.push({ type: 'setTimeout', ms: AUTO_CLEAR_MS })
+      return {
+        state: { message: 'テンプレート保存済 ✓', isError: false, timerId: null },
+        effects,
+      }
+    }
+    case 'templateSaveFailed': {
+      const effects: SavedMsgEffect[] = []
+      clearPendingTimer(state, effects)
+      effects.push({ type: 'setTimeout', ms: AUTO_CLEAR_MS })
+      return {
+        state: { message: '保存エラー', isError: false, timerId: null },
+        effects,
+      }
+    }
+    case 'dateMissing': {
+      const effects: SavedMsgEffect[] = []
+      clearPendingTimer(state, effects)
+      effects.push({ type: 'setTimeout', ms: AUTO_CLEAR_MS })
+      return {
+        state: { message: '日付を入力してください', isError: false, timerId: null },
+        effects,
+      }
+    }
+    case 'autoClearFired': {
+      return {
+        state: { message: '', isError: false, timerId: null },
+        effects: [],
+      }
+    }
   }
 }
 
@@ -74,8 +126,20 @@ export function savedMsgReducer(
  * 「自動消去の発火」イベントを送るだけの関数とする。
  */
 export function runSavedMsgEffects(
-  _effects: SavedMsgEffect[],
-  _deps: { timers: TimerApi; dispatch: (event: SavedMsgEvent) => void },
+  effects: SavedMsgEffect[],
+  deps: { timers: TimerApi; dispatch: (event: SavedMsgEvent) => void },
 ): number | null {
-  return -1
+  let timerId: number | null = null
+
+  for (const effect of effects) {
+    if (effect.type === 'clearTimeout') {
+      deps.timers.clearTimeout(effect.id)
+    } else {
+      timerId = deps.timers.setTimeout(() => {
+        deps.dispatch({ type: 'autoClearFired' })
+      }, effect.ms)
+    }
+  }
+
+  return timerId
 }
