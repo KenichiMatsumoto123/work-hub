@@ -19,6 +19,8 @@ import { resolveDatabaseUrl } from '../server/env'
 import { clients, dailyReports, projects, tasks, timeEntries } from '../server/schema'
 import { deleteReportFn, saveReportFn } from '../server/functions/reports'
 import type { DailyReportData } from '~/lib/types'
+import { assertNotDevDatabase } from './assert-not-dev-database'
+import { selectDeleteTargetIds } from './report-db-delete-targets'
 
 // ---------------------------------------------------------------------------
 // 観点表 1.0 節 規定 10（Phase 6 Round 3 FIND-R3-C01・Critical）のガードB：
@@ -31,33 +33,14 @@ import type { DailyReportData } from '~/lib/types'
 // `docker-compose.yml` の `POSTGRES_DB`（いずれも `workhub`）。
 // CI（`.github/workflows/ci.yml`）は `workhub_test` を使うため影響しない。
 //
+// 実装は DB クライアントに依存しない独立モジュール `assert-not-dev-database.ts` に
+// 切り出してある。`vitest.integration.config.ts` の `setupFiles` からも同じ関数が
+// 呼ばれ、このファイルを import しない結合テストにも機構で強制する
+// （Phase 6 Round 3 FIND-LC-M01・Major）。
+//
 // モジュール評価時（import 直後）に同期的に検査する。`db`（server/db.ts）は
 // 遅延接続の Proxy であり、この検査自体は接続を発生させない。
 // ---------------------------------------------------------------------------
-
-const DEV_DATABASE_NAME = 'workhub'
-
-function assertNotDevDatabase(): void {
-  const url = resolveDatabaseUrl()
-
-  let dbName: string
-  try {
-    dbName = new URL(url).pathname.replace(/^\//, '')
-  } catch {
-    // URL として解析できない場合はここでは判定しない（接続時のエラーに委ねる）
-    return
-  }
-  if (dbName !== DEV_DATABASE_NAME) return
-
-  throw new Error(
-    `[report-db-helpers] 結合テスト（DB込み）が開発用データベース「${DEV_DATABASE_NAME}」への接続を検出したため、起動を拒否しました。\n` +
-      'このまま実行すると、saveReportFn の UPSERT（daily_reports.date のユニーク制約）により、' +
-      '開発中の日報データが id を保持したまま中身だけサイレントに上書きされるおそれがあります' +
-      '（観点表 1.0 節 規定 10・Phase 6 Round 3 FIND-R3-C01）。\n' +
-      '対処方法: DATABASE_URL を開発用 DB とは別の DB に向けて実行してください。例:\n' +
-      "  DATABASE_URL='postgres://workhub:workhub_dev@localhost:5432/workhub_test' npm run test:integration",
-  )
-}
 
 assertNotDevDatabase()
 
@@ -325,7 +308,10 @@ export async function deleteByDates(dates: string[]): Promise<void> {
     .select({ id: timeEntries.id })
     .from(timeEntries)
     .where(inArray(timeEntries.date, dates))
-  const teTargets = teRows.map((row) => row.id).filter((id) => !timeEntryIds.has(id))
+  const teTargets = selectDeleteTargetIds(
+    teRows.map((row) => row.id),
+    timeEntryIds,
+  )
   if (teTargets.length > 0) {
     await testDb.delete(timeEntries).where(inArray(timeEntries.id, teTargets))
   }
@@ -334,7 +320,10 @@ export async function deleteByDates(dates: string[]): Promise<void> {
     .select({ id: dailyReports.id })
     .from(dailyReports)
     .where(inArray(dailyReports.date, dates))
-  const drTargets = drRows.map((row) => row.id).filter((id) => !dailyReportIds.has(id))
+  const drTargets = selectDeleteTargetIds(
+    drRows.map((row) => row.id),
+    dailyReportIds,
+  )
   if (drTargets.length > 0) {
     await testDb.delete(dailyReports).where(inArray(dailyReports.id, drTargets))
   }

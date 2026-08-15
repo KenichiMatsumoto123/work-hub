@@ -138,6 +138,7 @@ npm run check-types    # 型チェック（tsc --noemit）
 - テストが作成したデータだけを、対象を絞って削除する（例: `apps/web/src/server/auth/auth.integration.test.ts`）
 - 対象テーブルを空にする必要がある場合のみ、`apps/web/src/test/db-helpers.ts` の `truncateTables()` にテーブル名を明示列挙して呼ぶ
 - DB を分けたい場合は `DATABASE_URL` を環境変数で上書きして実行する
+- **結合テスト（DB込み）を新規追加する際は `apps/web/src/test/report-db-helpers.ts` を経由すること。**開発 DB への誤接続を拒否するガードB（DB 名判定）は `vitest.integration.config.ts` の `setupFiles` で全 `*.integration.test.ts` に機構で強制されるが、書き込み前の非空チェック（ガードA）はファイル単位のスナップショットが前提のため `setupFiles` には無く、`report-db-helpers.ts` を import した場合にのみ効く（Phase 6 Round 3 FIND-LC-M01 の代償措置）。ヘルパーを経由しない新規結合テストはガードAの保護を受けない
 
 ### テスト対象の判断基準
 
