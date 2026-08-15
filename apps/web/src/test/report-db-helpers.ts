@@ -20,6 +20,47 @@ import { clients, dailyReports, projects, tasks, timeEntries } from '../server/s
 import { deleteReportFn, saveReportFn } from '../server/functions/reports'
 import type { DailyReportData } from '~/lib/types'
 
+// ---------------------------------------------------------------------------
+// 観点表 1.0 節 規定 10（Phase 6 Round 3 FIND-R3-C01・Critical）のガードB：
+// 開発 DB への接続を機構で拒否する。
+//
+// `saveReportFn` は `daily_reports.date`（unique）に対する真の UPSERT であり、
+// 衝突時は既存行を同じ id のまま中身だけ上書きする。開発用 DB に接続したまま
+// 結合テストを実行すると、削除ではなく「サイレントな内容破壊」が起きる。
+// 開発用 DB 名の出典：`../server/env.ts` の `DEV_FALLBACK_DATABASE_URL` および
+// `docker-compose.yml` の `POSTGRES_DB`（いずれも `workhub`）。
+// CI（`.github/workflows/ci.yml`）は `workhub_test` を使うため影響しない。
+//
+// モジュール評価時（import 直後）に同期的に検査する。`db`（server/db.ts）は
+// 遅延接続の Proxy であり、この検査自体は接続を発生させない。
+// ---------------------------------------------------------------------------
+
+const DEV_DATABASE_NAME = 'workhub'
+
+function assertNotDevDatabase(): void {
+  const url = resolveDatabaseUrl()
+
+  let dbName: string
+  try {
+    dbName = new URL(url).pathname.replace(/^\//, '')
+  } catch {
+    // URL として解析できない場合はここでは判定しない（接続時のエラーに委ねる）
+    return
+  }
+  if (dbName !== DEV_DATABASE_NAME) return
+
+  throw new Error(
+    `[report-db-helpers] 結合テスト（DB込み）が開発用データベース「${DEV_DATABASE_NAME}」への接続を検出したため、起動を拒否しました。\n` +
+      'このまま実行すると、saveReportFn の UPSERT（daily_reports.date のユニーク制約）により、' +
+      '開発中の日報データが id を保持したまま中身だけサイレントに上書きされるおそれがあります' +
+      '（観点表 1.0 節 規定 10・Phase 6 Round 3 FIND-R3-C01）。\n' +
+      '対処方法: DATABASE_URL を開発用 DB とは別の DB に向けて実行してください。例:\n' +
+      "  DATABASE_URL='postgres://workhub:workhub_dev@localhost:5432/workhub_test' npm run test:integration",
+  )
+}
+
+assertNotDevDatabase()
+
 /** テストからも本体と同じ接続を使う */
 export const testDb = db
 
@@ -107,9 +148,160 @@ async function capturePreWriteSnapshot(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 観点表 1.0 節 規定 10（Phase 6 Round 3 FIND-R3-C01・Critical）のガードA：
+// 書き込み前の非空チェック。
+//
+// 規定 3 のスナップショット（上記）は DELETE 経路しか守らない。`saveReportFn` は
+// `daily_reports.date`（unique）に対する真の UPSERT であり、衝突時は既存行を
+// 同じ id のまま中身だけ上書きする。id が保持されるため `deleteByDates` は
+// 「削除しない」と正しく判定するが、それは中身が破壊されていないことを意味しない。
+//
+// そこで、本表（1.0 節 規定 5 の日付割当表・5-10 の寛容パース対応表・
+// 2 章 E2E-1〜E2E-7）が割り当てた全日付について、スナップショット取得の直後に
+// `daily_reports` / `time_entries` が 0 件であることを確認する。1 件でもあれば
+// 黙って進めず throw してテスト実行全体を中断する（対応表との突き合わせは
+// テスト作成報告に記載）。
+// ---------------------------------------------------------------------------
+
+/**
+ * 結合テストが書き込みに使う全日付（観点表 1.0 節 規定 5 の日付割当表・
+ * 5-10 の寛容パース対応表・2 章 E2E-1〜E2E-7 の合算・重複排除・昇順）。
+ */
+export const GUARD_DATES: readonly string[] = [
+  // 5-10 寛容パース対応表 + E2E-1（'2000-1-1' → 2000-01-01 と E2E-1 のセンチネルが重複）
+  '2000-01-01',
+  // E2E-2〜E2E-7
+  '2000-01-02',
+  '2000-01-03',
+  '2000-01-04',
+  '2000-01-05',
+  '2000-01-06',
+  '2000-01-07',
+  // 1.1 不可逆操作（1-1〜1-12）
+  '2000-01-10',
+  '2000-01-11',
+  '2000-01-12',
+  '2000-01-13',
+  '2000-01-14',
+  '2000-01-15',
+  '2000-01-16',
+  '2000-01-17',
+  '2000-01-18',
+  '2000-01-19',
+  '2000-01-20',
+  '2000-01-21',
+  '2000-01-22',
+  '2000-01-23',
+  '2000-01-24',
+  // 1.2 DB制約依存（2-5〜2-8）
+  '2000-01-25',
+  '2000-01-26',
+  '2000-01-27',
+  '2000-01-28',
+  '2000-02-01',
+  '2000-02-02',
+  '2000-02-03',
+  '2000-02-04',
+  '2000-02-05',
+  '2000-02-06',
+  '2000-02-07',
+  // 1.3 実JOIN（3-1〜3-8）
+  '2000-02-08',
+  '2000-02-09',
+  '2000-02-10',
+  '2000-02-11',
+  '2000-02-12',
+  '2000-02-13',
+  '2000-02-14',
+  '2000-02-15',
+  '2000-02-16',
+  '2000-02-17',
+  '2000-02-18',
+  // 1.4 トランザクション（4-2〜4-5・4-9）
+  '2000-02-19',
+  '2000-02-20',
+  '2000-02-21',
+  '2000-02-22',
+  '2000-02-23',
+  '2000-02-25',
+  '2000-02-26',
+  // 1.5 共通（5-1・5-2・5-4〜5-9・5-11・5-12）
+  '2000-02-24',
+  '2000-02-27',
+  '2000-02-28',
+  '2000-02-29', // 5-10 ACCEPTED（通過ケース。実在の閏日）
+  '2000-03-01',
+  '2000-03-02',
+  '2000-03-03',
+  '2000-03-04',
+  '2000-03-05',
+  '2000-03-06',
+  '2000-03-07',
+  '2000-03-08',
+  // T計測用の捨て日付（1.0 節 規定 7）
+  '2000-03-10',
+  // 5-7③②の追加保存分
+  '2000-03-11',
+  '2000-03-12',
+  // 5-10 ACCEPTED（通過ケース）
+  '0004-02-29',
+  '0050-03-01', // ACCEPTED であり、かつ ROLLOVER_SEED_DATES とも重複
+  // 5-10 ROLLOVER_SEED_DATES（寛容パース対応表の残り）
+  '1900-03-01',
+  '2026-03-01',
+  '2026-03-02',
+  '2028-02-29',
+]
+
+async function assertGuardDatesAreEmpty(): Promise<void> {
+  const [teRows, drRows] = await Promise.all([
+    testDb
+      .select({ date: timeEntries.date })
+      .from(timeEntries)
+      .where(inArray(timeEntries.date, [...GUARD_DATES])),
+    testDb
+      .select({ date: dailyReports.date })
+      .from(dailyReports)
+      .where(inArray(dailyReports.date, [...GUARD_DATES])),
+  ])
+  if (teRows.length === 0 && drRows.length === 0) return
+
+  const countBy = (rows: { date: string }[]): Map<string, number> => {
+    const counts = new Map<string, number>()
+    for (const row of rows) counts.set(row.date, (counts.get(row.date) ?? 0) + 1)
+    return counts
+  }
+  const teCounts = countBy(teRows)
+  const drCounts = countBy(drRows)
+  const dates = Array.from(new Set([...teCounts.keys(), ...drCounts.keys()])).sort()
+
+  const lines = dates.map((date) => {
+    const parts: string[] = []
+    if (drCounts.has(date)) parts.push(`daily_reports ${drCounts.get(date)}件`)
+    if (teCounts.has(date)) parts.push(`time_entries ${teCounts.get(date)}件`)
+    return `  - ${date}: ${parts.join(' / ')}`
+  })
+
+  throw new Error(
+    '[report-db-helpers] 結合テスト（DB込み）が書き込みに使う対象日付に、既存データが見つかったため' +
+      'テスト実行全体を中断しました。\n' +
+      'このまま実行すると、saveReportFn の UPSERT（daily_reports.date のユニーク制約）により、' +
+      '既存行が id を保持したまま中身だけサイレントに上書きされます' +
+      '（観点表 1.0 節 規定 10・Phase 6 Round 3 FIND-R3-C01）。\n' +
+      '検出した既存データ:\n' +
+      lines.join('\n') +
+      '\n\n対処方法: DATABASE_URL を開発用 DB とは別の DB に向けて実行してください。例:\n' +
+      "  DATABASE_URL='postgres://workhub:workhub_dev@localhost:5432/workhub_test' npm run test:integration",
+  )
+}
+
 // このヘルパーを import した各テストファイルの最初のテスト（および最初の `beforeAll`）より前に、
-// 1 回だけスナップショットを取る。
-beforeAll(capturePreWriteSnapshot)
+// 1 回だけスナップショットを取り、続けて対象日付の非空チェック（ガードA）を行う。
+beforeAll(async () => {
+  await capturePreWriteSnapshot()
+  await assertGuardDatesAreEmpty()
+})
 
 /**
  * 指定した日付の `time_entries` → `daily_reports` のうち、
