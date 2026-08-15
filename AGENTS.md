@@ -15,7 +15,7 @@ work-hub（日報・工数管理システム）で作業する AI エージェ�
 ```bash
 npm run dev            # 開発サーバー
 npm run db:setup       # PostgreSQL 起動 + スキーマ反映（初回）
-npm run db:push        # スキーマ反映（drizzle-kit push）
+npm run db:push        # スキーマ反映（drizzle-kit push）※下記「db:push の既知の挙動」を参照
 npm run test           # 単体 + 結合（内部）
 npm run test:coverage  # カバレッジ付き
 npm run test:integration  # 結合（DB込み・要DB）
@@ -139,6 +139,22 @@ npm run check-types    # 型チェック（tsc --noemit）
 - 対象テーブルを空にする必要がある場合のみ、`apps/web/src/test/db-helpers.ts` の `truncateTables()` にテーブル名を明示列挙して呼ぶ
 - DB を分けたい場合は `DATABASE_URL` を環境変数で上書きして実行する
 - **結合テスト（DB込み）を新規追加する際は `apps/web/src/test/report-db-helpers.ts` を経由すること。**開発 DB への誤接続を拒否するガードB（DB 名判定）は `vitest.integration.config.ts` の `setupFiles` で全 `*.integration.test.ts` に機構で強制されるが、書き込み前の非空チェック（ガードA）はファイル単位のスナップショットが前提のため `setupFiles` には無く、`report-db-helpers.ts` を import した場合にのみ効く（Phase 6 Round 3 FIND-LC-M01 の代償措置）。ヘルパーを経由しない新規結合テストはガードAの保護を受けない
+
+### `db:push` の既知の挙動（重要）
+
+**`npm run db:push` は `No changes detected` に収束しない。**`tasks` の `tasks_pj_cl_title_unique`（`UNIQUE NULLS NOT DISTINCT`）について、実行のたびに `DROP CONSTRAINT` → `ADD CONSTRAINT` を再発行する。
+
+原因は drizzle-kit 0.31.10 の introspection にある。ユニーク制約を読む際に `nullsNotDistinct: false` をハードコードしており（`node_modules/drizzle-kit/api.mjs:23307`）、`pg_index.indnullsnotdistinct` を参照しないため、実 DB が `NULLS NOT DISTINCT` を持っていても検出できない。**制約自体は正しく作られ正しく効いている**（`pg_index.indnullsnotdistinct = true` で確認可能）。
+
+この挙動を受容する判断は 2026-08-15 に人間が行った（案A：受容・文書化）。運用上は次に注意する：
+
+- **`db:push` のたびに制約が一瞬消える**（DROP と ADD の間はユニーク性が担保されない）
+- **重複行がある状態で `db:push` すると DROP は成功し ADD が失敗し、制約が無い状態で残る。**`db:push` の前に重複が無いことを確認すること：
+  ```sql
+  SELECT project_id, client_id, title, count(*) FROM tasks
+    GROUP BY project_id, client_id, title HAVING count(*) > 1;
+  ```
+- **`No changes detected` を「スキーマが定義と一致している」判定に使えない**（`tasks` の当該制約に限る）
 
 ### テスト対象の判断基準
 
