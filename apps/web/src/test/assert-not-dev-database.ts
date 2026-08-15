@@ -34,6 +34,15 @@ const DEV_DATABASE_NAME = 'workhub'
  * 設計だったが、DB 名を確定できないケースは安全側に倒し、常に起動を拒否する
  * fail-closed に改めた（例外を投げるのは「解析不能」自体の理由。DB 名が
  * 最終的に決定できないケースも同様に拒否する）。
+ *
+ * **`PGUSERNAME` / `PGUSER` / OS ユーザー名フォールバックを実装しない判断について**
+ * （Phase 6 Round 4 FIND-R4-LC-M01・Minor。修正しないことを確定）：
+ * この 3 段を実装すると、現在 fail-closed で拒否している一部の接続文字列
+ * （pathname 無し・`PGDATABASE` 未設定・接続文字列にユーザー名も無いケース）が
+ * 判定を通過するようになる——つまりガード**B の安全側（過検知）をわざわざ緩める**
+ * 変更になる。`.env.example` / `docker-compose.yml` / `ci.yml` はいずれも
+ * `DATABASE_URL` に user 部を含むため、この 3 段が無いことによる誤検知（正規の
+ * 接続文字列を誤って拒否する）は実測上発生しない。したがって実装しない。
  */
 export function resolveEffectiveDbName(url: string): string {
   let parsed: URL
@@ -41,7 +50,7 @@ export function resolveEffectiveDbName(url: string): string {
     parsed = new URL(url)
   } catch (cause) {
     throw new Error(
-      '[report-db-helpers] DATABASE_URL を URL として解析できませんでした。' +
+      '[assert-not-dev-database] DATABASE_URL を URL として解析できませんでした。' +
         '接続先データベース名を判定できないため、fail-closed の方針により結合テストの起動を拒否します。\n' +
         `DATABASE_URL: ${url}`,
       { cause: cause as Error },
@@ -57,7 +66,7 @@ export function resolveEffectiveDbName(url: string): string {
   if (fromUsername) return fromUsername
 
   throw new Error(
-    '[report-db-helpers] DATABASE_URL からデータベース名を判定できませんでした' +
+    '[assert-not-dev-database] DATABASE_URL からデータベース名を判定できませんでした' +
       '（pathname 無し・PGDATABASE 未設定・接続文字列にユーザー名も無し）。' +
       'fail-closed の方針により結合テストの起動を拒否します。\n' +
       `DATABASE_URL: ${url}`,
@@ -70,7 +79,7 @@ export function assertNotDevDatabase(): void {
   if (dbName !== DEV_DATABASE_NAME) return
 
   throw new Error(
-    `[report-db-helpers] 結合テスト（DB込み）が開発用データベース「${DEV_DATABASE_NAME}」への接続を検出したため、起動を拒否しました。\n` +
+    `[assert-not-dev-database] 結合テスト（DB込み）が開発用データベース「${DEV_DATABASE_NAME}」への接続を検出したため、起動を拒否しました。\n` +
       'このまま実行すると、saveReportFn の UPSERT（daily_reports.date のユニーク制約）により、' +
       '開発中の日報データが id を保持したまま中身だけサイレントに上書きされるおそれがあります' +
       '（観点表 1.0 節 規定 10・Phase 6 Round 3 FIND-R3-C01）。\n' +

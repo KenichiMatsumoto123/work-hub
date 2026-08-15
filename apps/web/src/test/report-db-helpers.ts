@@ -441,13 +441,19 @@ export async function cleanupFixedNames(snapshot: FixedNameSnapshot): Promise<vo
   )
 }
 
+/**
+ * Phase 6 Round 4 FIND-R4-M03（Minor）：`deleteByDates` の id フィルタを
+ * 純粋関数 `selectDeleteTargetIds` に抽出したのと同型のインライン filter が
+ * ここにも残っていた（規定 4 の固定名防御）。同じ検出力空洞を避けるため、
+ * ここでも `selectDeleteTargetIds` を再利用する（挙動は変えない）。
+ */
 async function deleteNewRows(
   label: string,
   currentIds: string[],
   knownIds: string[],
   run: (ids: string[]) => Promise<unknown>,
 ): Promise<void> {
-  const targets = currentIds.filter((id) => !knownIds.includes(id))
+  const targets = selectDeleteTargetIds(currentIds, new Set(knownIds))
   if (targets.length === 0) return
   try {
     await run(targets)

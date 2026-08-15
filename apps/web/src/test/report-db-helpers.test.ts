@@ -58,4 +58,25 @@ describe('selectDeleteTargetIds', () => {
 
     expect(targets).toEqual([])
   })
+
+  // Phase 6 Round 4 FIND-R4-M01（Minor）：既存の5件は Set.has による完全一致ではなく
+  // 部分文字列一致（includes）で判定する別実装でも全件通過してしまう。一方が他方を
+  // 部分文字列として含む id を使い、完全一致の実装だけが通過するようにする。
+  it('スナップショットの id が現在の id の部分文字列であっても、完全一致でなければ削除対象になること', () => {
+    const snapshotIds = new Set(['abc'])
+    const currentIds = ['abc', 'abc-extra']
+
+    const targets = selectDeleteTargetIds(currentIds, snapshotIds)
+
+    expect(targets).toEqual(['abc-extra'])
+  })
+
+  it('現在の id がスナップショットの id の部分文字列であっても、完全一致でなければ削除対象になること', () => {
+    const snapshotIds = new Set(['abc-extra'])
+    const currentIds = ['abc', 'abc-extra']
+
+    const targets = selectDeleteTargetIds(currentIds, snapshotIds)
+
+    expect(targets).toEqual(['abc'])
+  })
 })
