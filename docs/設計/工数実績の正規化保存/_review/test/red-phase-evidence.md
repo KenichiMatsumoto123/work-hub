@@ -73,6 +73,9 @@ tmp_constraints=0
 
 観点表 1.0 節の規定 3（親子辿りの削除）・規定 4（保存前に存在しなかった場合のみ削除）・規定 8（冪等 DDL）・土台の規定 6（確実なロック解放）が**全経路で機能している**。unhandledRejection も発生していない（規定 3 の `.catch()` 起動時装着が効いている）。
 
+> **【2026-08-15 追記・上記の判定は誤りだった】**
+> ここで確認したのは「**テストが作ったデータが残らないこと**」だけであり、「**テストが作っていないデータを消さないこと**」は測っていなかった。Phase 6 Round 2 のレーンC が後者を実測し、`deleteByDates` が日付だけで `time_entries` / `daily_reports` を無条件 DELETE するため、**利用者の実データを破壊する**ことが判明した（FIND-C01・Critical）。規定 4 の「保存前に存在しなかった場合のみ削除」防御はマスタ 3 テーブルにしか実装されていない。詳細は `findings-round2.md` を参照。**「全経路で機能している」という上記の記述は撤回する。**
+
 ## Phase 8 への申し送り（`test-builder` からの報告を司令塔が確認）
 
 1. **S-1〜S-3 をスキーマ定義に追加すること。**`schema/master.ts` / `schema/tasks.ts` に未記載であり、追加しないと `npm run db:push` が制約を作らず、2-1〜2-3 と 3-1 が退行を検出できなくなる
@@ -86,7 +89,7 @@ Round 1 の Major 6 件（FIND-001〜004・B01・B02）＋ Minor 2 件（FIND-00
 | 項目 | Round 1 修正前 | 修正後（司令塔の実測） | 差分の説明 |
 |---|---|---|---|
 | `npm run check-types` | PASS | **PASS** | — |
-| `npm run test`（単体・結合内部） | 132 FAIL / 63 PASS（196） | **132 FAIL / 64 PASS（196…→197）** | PASS +1 は FIND-B09 の回帰テスト（`hasRequireSessionMiddleware` が走査ヘルパー自身の自己検証であり SUT に依存しないため Red Phase でも PASS するのが正しい） |
+| `npm run test`（単体・結合内部） | 132 FAIL / 63 PASS（196） | **132 FAIL / 64 PASS（196 件）** | PASS +1 は FIND-B09 の回帰テスト（`hasRequireSessionMiddleware` が走査ヘルパー自身の自己検証であり SUT に依存しないため Red Phase でも PASS するのが正しい） |
 | `npm run test:integration`（DB込み） | 56 FAIL / 19 PASS（75） | **56 FAIL / 19 PASS（75）** | 件数一致。FIND-B02・B01 の修正は既存テストの内容を強化したもので件数を増やしていない |
 | `npm run db:push` | No changes detected | **No changes detected** | スキーマ汚染なし |
 
@@ -100,7 +103,7 @@ Round 1 の Major 6 件（FIND-001〜004・B01・B02）＋ Minor 2 件（FIND-00
 
 **実行環境の注記：**本コンテナに `.env` は存在せず、`DATABASE_URL` を環境変数で上書きして実行している（`AGENTS.md`「DB を分けたい場合は `DATABASE_URL` を環境変数で上書きして実行する」に従う）。上書きを忘れると `resolveDatabaseUrl` が開発用フォールバック（5432）に落ち、全 DB込みテストが接続失敗で skip される。接続先は `postgres://workhub@localhost:5433/workhub_test`。
 
-**未実施の独立検証：**FIND-001〜003 の修正が「違反実装を実際に落とす」ことの実測は、`test-builder` の自己申告のみで司令塔は追認していない（実測には違反実装の作成＝実装コードの記述が必要で、運用ルール 6 により司令塔は行わない）。**Phase 6 Round 2 のレーンA に独立再実測を指示する。**
+**独立検証の結果（Round 2 完了時に更新）：**FIND-001〜003 の修正が「違反実装を実際に落とす」ことは、Phase 6 Round 2 のレーンA が独立に実測して確認した。まず正しい実装で 24 件全 PASS のベースラインを取ったうえで違反を 1 つずつ混ぜており、「元から FAIL していただけ」と区別できている。測定後の復元も `git diff` が空であることで確認済み。詳細は `findings-round2.md`。
 
 ## 補足
 
