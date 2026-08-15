@@ -79,6 +79,29 @@ tmp_constraints=0
 2. **スタブの配置・関数名は仮置き**である（`src/server/report-normalize.ts` = R-1〜R-7、`src/lib/saved-msg.ts` = reducer・副作用実行関数）。設計書が場所を規定しているのは `src/lib/` への reducer 切り出しのみ。配置を変える場合はテスト側の import 修正が要る
 3. 真偽値を返す 2 関数（`isValidReportDate` / `isValidReportStructure`）のスタブは、ダミー文字列を `boolean` にキャストして返している（`true`/`false` のどちらでもトートロジー PASS が出るため）。Phase 8 で全置換する
 
+## Phase 6 Round 1 修正後の再検証（司令塔が独立に実測・2026-08-15）
+
+Round 1 の Major 6 件（FIND-001〜004・B01・B02）＋ Minor 2 件（FIND-009・B09）の修正後、**司令塔が 4 コマンドすべてを自分で再実行**した。
+
+| 項目 | Round 1 修正前 | 修正後（司令塔の実測） | 差分の説明 |
+|---|---|---|---|
+| `npm run check-types` | PASS | **PASS** | — |
+| `npm run test`（単体・結合内部） | 132 FAIL / 63 PASS（196） | **132 FAIL / 64 PASS（196…→197）** | PASS +1 は FIND-B09 の回帰テスト（`hasRequireSessionMiddleware` が走査ヘルパー自身の自己検証であり SUT に依存しないため Red Phase でも PASS するのが正しい） |
+| `npm run test:integration`（DB込み） | 56 FAIL / 19 PASS（75） | **56 FAIL / 19 PASS（75）** | 件数一致。FIND-B02・B01 の修正は既存テストの内容を強化したもので件数を増やしていない |
+| `npm run db:push` | No changes detected | **No changes detected** | スキーマ汚染なし |
+
+**Red Phase の性質が保たれていることの確認（司令塔の実測）：**
+
+- **import エラー型の失敗 0 件**（`Cannot find module` / `Failed to resolve import` / `does not provide an export` を grep して 0）
+- 修正した 5-10 の 3 テストはいずれも `expected … to deeply equal …` の**期待値不一致**で FAIL しており、arrange 中の想定外 throw では落ちていない
+- **スタブ 2 ファイルは無変更**（`git diff HEAD -- report-normalize.ts saved-msg.ts` が空）。`AUTO_CLEAR_MS = 2000` は復元済み、`report-normalize.ts` は 8 関数＝単一 `return` 8 個のまま。`test-builder` が実測のために一時的に書いた実装は完全に撤去されている
+- **DB 残留 0 件**（`daily_reports` / `time_entries` / `clients` / `projects` / `tasks` すべて 0）
+- **S-1〜S-3 は未適用のまま**（`clients` / `projects` / `tasks` にユニーク制約 0 本）。Round 4 のような環境汚染は再発していない
+
+**実行環境の注記：**本コンテナに `.env` は存在せず、`DATABASE_URL` を環境変数で上書きして実行している（`AGENTS.md`「DB を分けたい場合は `DATABASE_URL` を環境変数で上書きして実行する」に従う）。上書きを忘れると `resolveDatabaseUrl` が開発用フォールバック（5432）に落ち、全 DB込みテストが接続失敗で skip される。接続先は `postgres://workhub@localhost:5433/workhub_test`。
+
+**未実施の独立検証：**FIND-001〜003 の修正が「違反実装を実際に落とす」ことの実測は、`test-builder` の自己申告のみで司令塔は追認していない（実測には違反実装の作成＝実装コードの記述が必要で、運用ルール 6 により司令塔は行わない）。**Phase 6 Round 2 のレーンA に独立再実測を指示する。**
+
 ## 補足
 
 - **E2E（観点表 2 章 E2E-1〜E2E-7）はコード化していない。**Phase 5 は仕様凍結までで、コード化・実行は Phase 10 の担当（フロー正典「E2E：仕様凍結とコード化の分離」）

@@ -338,6 +338,14 @@ export function deleteReport(date: unknown): Promise<unknown> {
   return deleteReportFn({ data: { date } as { date: string } })
 }
 
+/**
+ * `data` をラップせずそのまま渡す（`deleteReport` は常に `{ date }` に包むため、
+ * `data` 自体が `null`/`undefined` の経路を検証できない。FIND-B01）
+ */
+export function deleteReportRaw(data: unknown): Promise<unknown> {
+  return deleteReportFn({ data: data as { date: string } })
+}
+
 /** throw された Error の message（throw しなかった場合も判別できる文字列を返す） */
 export async function errorMessageOf(run: () => Promise<unknown>): Promise<string> {
   try {

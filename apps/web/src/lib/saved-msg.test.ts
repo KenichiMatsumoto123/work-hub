@@ -108,7 +108,8 @@ describe('savedMsgReducer：出力する副作用', () => {
     (event) => {
       const result = savedMsgReducer(idle, event)
 
-      expect(result.effects).toEqual([{ type: 'setTimeout', ms: AUTO_CLEAR_MS }])
+      // AC-80 の「2000ms」をリテラルで束縛する（SUT の export をそのまま期待値にしない。FIND-001）
+      expect(result.effects).toEqual([{ type: 'setTimeout', ms: 2000 }])
     },
   )
 
@@ -119,7 +120,7 @@ describe('savedMsgReducer：出力する副作用', () => {
 
       expect(result.effects).toEqual([
         { type: 'clearTimeout', id: 12345 },
-        { type: 'setTimeout', ms: AUTO_CLEAR_MS },
+        { type: 'setTimeout', ms: 2000 },
       ])
     },
   )
@@ -203,11 +204,14 @@ describe('runSavedMsgEffects：副作用の実行', () => {
 
   it('setTimeout には副作用の ms がそのまま渡る（AC-87）', () => {
     const { timers, setTimeoutCalls } = makeTimers()
-    const effects: SavedMsgEffect[] = [{ type: 'setTimeout', ms: AUTO_CLEAR_MS }]
+    // 入力と期待値に同一定数（AUTO_CLEAR_MS）を使うとハードコード実装を落とせないため、
+    // 識別可能な別値を使い pass-through を検証する（FIND-002）
+    const DISTINCT_MS = 1234
+    const effects: SavedMsgEffect[] = [{ type: 'setTimeout', ms: DISTINCT_MS }]
 
     runSavedMsgEffects(effects, { timers, dispatch: vi.fn() })
 
-    expect(setTimeoutCalls.map((call) => call.ms)).toEqual([AUTO_CLEAR_MS])
+    expect(setTimeoutCalls.map((call) => call.ms)).toEqual([DISTINCT_MS])
   })
 
   it('setTimeout のコールバックは自動消去の発火を1回 dispatch する（AC-87）', () => {
@@ -215,7 +219,12 @@ describe('runSavedMsgEffects：副作用の実行', () => {
     const dispatch = vi.fn()
 
     runSavedMsgEffects([{ type: 'setTimeout', ms: AUTO_CLEAR_MS }], { timers, dispatch })
-    setTimeoutCalls[0]?.callback()
+
+    // コールバック起動前は dispatch されていないこと（コールバック外での先行 dispatch を落とす。FIND-003）
+    expect(setTimeoutCalls.length).toBe(1)
+    expect(dispatch.mock.calls).toEqual([])
+
+    setTimeoutCalls[0].callback()
 
     expect(dispatch.mock.calls).toEqual([[{ type: 'autoClearFired' }]])
   })

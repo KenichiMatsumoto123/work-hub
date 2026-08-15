@@ -253,13 +253,23 @@ describe('1-6 削除済みデータへの再操作／存在確認の判定対象
         { label: `${PREFIX}PJ`, name: `${PREFIX}予定のみ`, actualHours: '' },
       ]),
     )
+    // Given（time_entries が 0 件・daily_reports は存在する）が成立していることも同時に判定する
+    const entriesBefore = await entrySummaryOfDate(EMPTY_DATE)
+    const reportExistsBefore = (await dailyReportOfDate(EMPTY_DATE)) !== null
 
     const message = await errorMessageOf(() => deleteReport(EMPTY_DATE))
 
     expect({
+      entriesBefore,
+      reportExistsBefore,
       message,
       reportExists: (await dailyReportOfDate(EMPTY_DATE)) !== null,
-    }).toEqual({ message: '（throw しなかった）', reportExists: false })
+    }).toEqual({
+      entriesBefore: { count: 0, total: 0 },
+      reportExistsBefore: true,
+      message: '（throw しなかった）',
+      reportExists: false,
+    })
   })
 })
 

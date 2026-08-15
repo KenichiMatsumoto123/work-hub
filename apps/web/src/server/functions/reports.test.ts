@@ -133,14 +133,20 @@ function sliceServerFnDefinitions(source: string): Map<string, string> {
   return slices
 }
 
-/** スライスが `requireSession` を要素に含む `.middleware([...])` を持つか */
+/**
+ * スライスが `requireSession` を要素に含む `.middleware([...])` を持つか。
+ * スライス内の `.middleware` 呼び出し全件を走査する（最初の 1 個だけを見ると、
+ * それより前に別の `.middleware` 呼び出しがある場合に偽 FAIL になる。FIND-B09）
+ */
 function hasRequireSessionMiddleware(slice: string): boolean {
-  const middleware = slice.match(/\.middleware\(\s*\[([^\]]*)\]\s*\)/)
-  if (!middleware) return false
-  return middleware[1]
-    .split(',')
-    .map((entry) => entry.trim())
-    .includes('requireSession')
+  const middlewareCalls = [...slice.matchAll(/\.middleware\(\s*\[([^\]]*)\]\s*\)/g)]
+  if (middlewareCalls.length === 0) return false
+  return middlewareCalls.some((middleware) =>
+    middleware[1]
+      .split(',')
+      .map((entry) => entry.trim())
+      .includes('requireSession'),
+  )
 }
 
 describe('6-2 requireSession の静的検証', () => {
@@ -174,6 +180,19 @@ describe('6-2 requireSession の静的検証', () => {
     const slice = sliceServerFnDefinitions(fake).get('saveReportFn')
 
     expect(slice !== undefined && hasRequireSessionMiddleware(slice)).toBe(false)
+  })
+
+  it('スライス内に複数の .middleware 呼び出しがあっても後続のものを見る（FIND-B09）', () => {
+    const fake = [
+      'export const saveReportFn = createServerFn({ method: "POST" })',
+      '  .middleware([otherMiddleware])',
+      '  .middleware([requireSession])',
+      '  .handler(async () => {})',
+    ].join('\n')
+
+    const slice = sliceServerFnDefinitions(fake).get('saveReportFn')
+
+    expect(slice !== undefined && hasRequireSessionMiddleware(slice)).toBe(true)
   })
 
   it('別のサーバー関数の .middleware を自分のものとして数えない', () => {
