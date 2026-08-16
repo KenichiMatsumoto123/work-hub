@@ -97,6 +97,8 @@ function checkUnauthorizedValue(value: unknown, visited: Set<object>): boolean {
 
   if (value instanceof Error && value.message.includes('UNAUTHORIZED')) return true
 
+  if (typeof value === 'string' && value.includes('UNAUTHORIZED')) return true
+
   if (typeof value === 'object') {
     if (visited.has(value)) return false
     visited.add(value)
@@ -229,6 +231,11 @@ export async function startLoad(
 
     if (requestId !== currentLoadRequestId) {
       return staleResult()
+    }
+
+    if (isUnauthorizedError(report)) {
+      deps.assignLocation?.(LOGIN_ON_401_HREF)
+      return workingState
     }
 
     if (report !== null && !isLoadableReport(report)) {
