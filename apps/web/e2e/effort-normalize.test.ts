@@ -155,6 +155,11 @@ async function waitForHydration(page: Page): Promise<void> {
   await expect(dateInput(page)).toBeVisible()
 }
 
+/** AC-L63：hydration のあと、読み込みバナーが消えるまで待ってから日付入力する */
+async function waitForReportLoadSuccess(page: Page): Promise<void> {
+  await expect(page.getByTestId('report-load-status')).toHaveCount(0, { timeout: 10000 })
+}
+
 // ---------------------------------------------------------------------------
 // E2E-5 専用：AUTO_CLEAR タイマー（setTimeout(fn, 2000)）が実際に張られた時刻 t0 を直接観測する。
 //
@@ -222,6 +227,7 @@ test.beforeAll(async ({ browser, baseURL }, testInfo) => {
   try {
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(WARMUP_DATE)
     await saveButton(page).click()
     // コールドスタートを見込んだ、この呼び出しだけの特別な長い待ち時間
@@ -249,6 +255,7 @@ test.describe('E2E-1 保存の正常系（完走）', () => {
   test('必要項目を入力して日報保存を押すと保存しました✓が表示される', async ({ page }) => {
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     await clientNameInput(page).fill('E2E1-取引先')
     await projectNameInput(page).fill('E2E1-PJ')
@@ -275,6 +282,7 @@ test.describe('E2E-2 二重保存（冪等性が保存エラーとして表面�
   test('同じ内容で連続保存してもどちらも保存しました✓が表示される', async ({ page }) => {
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     await clientNameInput(page).fill('E2E2-取引先')
     await projectNameInput(page).fill('E2E2-PJ')
@@ -317,6 +325,7 @@ test.describe('E2E-3 前提データがない状態（対象行0件）', () => {
   test('実績hを入力せず保存しても保存しました✓が表示される', async ({ page }) => {
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     // 実績h は入力しない（defaultDailyReport() の初期状態のまま＝対象行 0 件）
 
@@ -342,6 +351,7 @@ test.describe('E2E-4 主要な異常系（入力不正）とエラー表示', ()
   test('実績h=25で保存するとエラー表示が3秒間残り、成功文言は一度も現れない', async ({ page }) => {
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     await actualHoursInput(page).fill('25')
     // テンプレ保存ボタンは押さない
@@ -399,6 +409,7 @@ test.describe('E2E-5 中断／再開（成功直後の失敗でタイマーが�
 
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     await clientNameInput(page).fill('E2E5-取引先')
     await projectNameInput(page).fill('E2E5-PJ')
@@ -484,6 +495,7 @@ test.describe('E2E-6 未認証での保存・削除（権限なし）', () => {
 
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     // 画面操作を伴うシナリオは、保存を成立させない意図であっても必ずセンチネル日付を入力する
 
@@ -557,6 +569,7 @@ test.describe('E2E-7 成功メッセージの自動消去（現行挙動の維�
   test('保存しました✓の表示は観測から3秒以内に消える', async ({ page }) => {
     await page.goto('/')
     await waitForHydration(page)
+    await waitForReportLoadSuccess(page)
     await dateInput(page).fill(date)
     await clientNameInput(page).fill('E2E7-取引先')
     await projectNameInput(page).fill('E2E7-PJ')

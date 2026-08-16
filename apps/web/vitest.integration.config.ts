@@ -20,7 +20,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.integration.test.ts'],
-    setupFiles: ['./src/test/assert-not-dev-database-setup.ts'],
+    setupFiles: ['./src/test/assert-not-dev-database-setup.ts', './src/test/vitest.setup.ts'],
     fileParallelism: false,
     testTimeout: 20_000,
   },

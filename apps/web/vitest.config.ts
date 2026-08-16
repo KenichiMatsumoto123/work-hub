@@ -9,7 +9,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     // 実DBを必要とする結合テストは npm run test:integration で別に実行する
     exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.integration.test.ts'],
-    setupFiles: [],
+    setupFiles: ['./src/test/vitest.setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

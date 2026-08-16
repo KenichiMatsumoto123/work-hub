@@ -26,24 +26,7 @@ import {
   type LengthViolation,
   type TaskIdentity,
 } from '../report-normalize'
-
-/** DB行 → DailyReportData 変換 */
-function rowToReport(row: typeof dailyReports.$inferSelect): DailyReportData {
-  if (row.rawData && typeof row.rawData === 'object') {
-    return row.rawData as DailyReportData
-  }
-  return {
-    date: row.date,
-    startTime: row.startTime,
-    endTime: row.endTime,
-    breakTime: row.breakTime,
-    note: row.note ?? '',
-    projects: [],
-    goodPoints: row.goodPoints ?? '',
-    badPoints: row.badPoints ?? '',
-    nextPlan: row.nextPlan ?? '',
-  }
-}
+import { fetchReportByDate, rowToReport } from './fetch-report-by-date'
 
 export const getAllReportsFn = createServerFn({ method: 'GET' })
   .middleware([requireSession])
@@ -550,3 +533,11 @@ export const deleteReportFn = createServerFn({ method: 'POST' })
 
     return { success: true }
   })
+
+export const getReportByDateFn =
+  createServerFn({ method: 'GET' })
+    .middleware([requireSession])
+    .inputValidator((data: { date: string }) => data)
+    .handler(async ({ data }) => {
+      return await fetchReportByDate(data.date)
+    })

@@ -38,7 +38,7 @@ vi.mock('../db', () => {
   }
 })
 
-const { saveReportFn } = await import('./reports')
+const { saveReportFn, getReportByDateFn } = await import('./reports')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -149,7 +149,7 @@ function hasRequireSessionMiddleware(slice: string): boolean {
   )
 }
 
-describe('6-2 requireSession の静的検証', () => {
+describe('6-2 requireSession の静的検証（AC-L13）', () => {
   const source = stripComments(
     readFileSync(fileURLToPath(new URL('./reports.ts', import.meta.url)), 'utf-8'),
   )
@@ -159,7 +159,7 @@ describe('6-2 requireSession の静的検証', () => {
     expect(slices.size).toBeGreaterThan(0)
   })
 
-  it.each(['saveReportFn', 'deleteReportFn'])(
+  it.each(['saveReportFn', 'deleteReportFn', 'getReportByDateFn'])(
     '%s の定義に requireSession を含む .middleware がある',
     (name) => {
       const slice = slices.get(name)
@@ -207,6 +207,28 @@ describe('6-2 requireSession の静的検証', () => {
     const slice = sliceServerFnDefinitions(fake).get('saveReportFn')
 
     expect(slice !== undefined && hasRequireSessionMiddleware(slice)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 日報の自動読み込み：getReportByDateFn invalid date（AC-L12）
+// ---------------------------------------------------------------------------
+
+describe('getReportByDateFn invalid date（AC-L12）', () => {
+  it.each(['', '2000-1-1', '2026-02-30', '0000-01-01'])(
+    '不正日付 %s では DB に触れず null を返す',
+    async (date) => {
+      await expect(getReportByDateFn({ data: { date } })).resolves.toBeNull()
+    },
+  )
+
+  it('不正日付では DB select が呼ばれない', async () => {
+    const { db } = await import('../db')
+    const selectSpy = vi.spyOn(db, 'select')
+
+    await getReportByDateFn({ data: { date: '2026-02-30' } })
+
+    expect(selectSpy).not.toHaveBeenCalled()
   })
 })
 

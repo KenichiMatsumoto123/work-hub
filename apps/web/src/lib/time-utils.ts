@@ -1,9 +1,5 @@
 export const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'] as const
 
-export function getToday(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
 export function formatDateShort(dateStr: string): string {
   const d = new Date(dateStr)
   return `${d.getMonth() + 1}/${d.getDate()}`
@@ -42,4 +38,18 @@ export function getDatesInMonth(year: number, month: number): string[] {
     dates.push(dateStr)
   }
   return dates
+}
+
+export function getToday(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const parts = formatter.formatToParts(now)
+  const year = parts.find((p) => p.type === 'year')!.value
+  const month = parts.find((p) => p.type === 'month')!.value
+  const day = parts.find((p) => p.type === 'day')!.value
+  return `${year}-${month}-${day}`
 }

@@ -4,45 +4,8 @@ import {
   getReportsByMonthFn,
   saveReportFn,
   deleteReportFn,
+  getReportByDateFn,
 } from '~/server/functions/reports'
-
-/** localStorage wrapper（テンプレート保存用） */
-export const storage = {
-  get(key: string): string | null {
-    try {
-      return localStorage.getItem(key)
-    } catch {
-      return null
-    }
-  },
-  set(key: string, value: string): boolean {
-    try {
-      localStorage.setItem(key, value)
-      return true
-    } catch {
-      return false
-    }
-  },
-}
-
-/** sessionStorage wrapper（autosave用） */
-export const session = {
-  get(key: string): string | null {
-    try {
-      return sessionStorage.getItem(key)
-    } catch {
-      return null
-    }
-  },
-  set(key: string, value: string): boolean {
-    try {
-      sessionStorage.setItem(key, value)
-      return true
-    } catch {
-      return false
-    }
-  },
-}
 
 /** 日報の永続保存（PostgreSQL via createServerFn） */
 export const reportStorage = {
@@ -79,5 +42,9 @@ export const reportStorage = {
     } catch {
       return []
     }
+  },
+
+  async getByDate(date: string): Promise<DailyReportData | null> {
+    return await getReportByDateFn({ data: { date } })
   },
 }

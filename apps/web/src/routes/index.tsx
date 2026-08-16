@@ -1,5 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useRef, useState, useEffect } from 'react'
+import { createFileRoute, useBlocker } from '@tanstack/react-router'
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { Input } from '~/components/ui/Input'
 import { Button } from '~/components/ui/Button'
 import { Label } from '~/components/ui/Label'
@@ -7,17 +7,31 @@ import { CopyButton } from '~/components/ui/CopyButton'
 import { CellRow } from '~/components/ui/CellRow'
 import { ProjectBlock } from '~/components/report/ProjectBlock'
 import { ReflectionSection } from '~/components/report/ReflectionSection'
-import { defaultProject, defaultDailyReport } from '~/lib/defaults'
+import { defaultProject } from '~/lib/defaults'
 import { generateDailyReport, getProjectSummary } from '~/lib/report-generator'
-import { generateId } from '~/lib/time-utils'
-import { storage, session, reportStorage } from '~/lib/storage'
-import { defaultTask } from '~/lib/defaults'
+import { getToday } from '~/lib/time-utils'
+import { reportStorage } from '~/lib/storage'
 import {
   savedMsgReducer,
   runSavedMsgEffects,
   initialSavedMsgState,
   type SavedMsgEvent,
 } from '~/lib/saved-msg'
+import {
+  emptyReport,
+  getFormControlsAccessibility,
+  isReportDirty,
+  LEAVE_PAGE_CONFIRM,
+  LOAD_STATUS_ERROR,
+  LOAD_STATUS_LOADING,
+  markReportSaved,
+  onDateChange,
+  shouldConfirmSpaLeave,
+  shouldFetchReport,
+  shouldPreventUnload,
+  startLoad,
+  type ReportLoadState,
+} from '~/lib/report-load'
 import type { DailyReportData, Project } from '~/lib/types'
 import '~/styles/app.css'
 
@@ -31,15 +45,18 @@ function TabButton({
   active,
   children,
   onClick,
+  disabled,
 }: {
   active: boolean
   children: React.ReactNode
   onClick: () => void
+  disabled?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className={`border-none rounded-lg cursor-pointer font-sans px-5 py-2.5 text-sm transition-all duration-150 ${
+      disabled={disabled}
+      className={`border-none rounded-lg cursor-pointer font-sans px-5 py-2.5 text-sm transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
         active ? 'bg-accent text-white font-semibold' : 'bg-transparent text-text-dim font-normal'
       }`}
     >
@@ -48,15 +65,77 @@ function TabButton({
   )
 }
 
+function createInitialLoadState(): ReportLoadState {
+  const initial = emptyReport(getToday())
+  return {
+    data: initial,
+    baseline: initial,
+    loadStatus: 'loading',
+    loadRequestId: 0,
+  }
+}
+
 function HomePage() {
-  const [data, setData] = useState<DailyReportData>(defaultDailyReport())
+  const [loadState, setLoadState] = useState<ReportLoadState>(createInitialLoadState)
+  const { data, baseline, loadStatus } = loadState
   const [activeTab, setActiveTab] = useState<TabId>('input')
 
-  // 保存メッセージ（savedMsg）の状態管理は ~/lib/saved-msg.ts の reducer に委ねる
-  // （設計書「UI の変更（エラー表示）> 実装構造の規定」）。コンポーネント側は
-  // イベントの生成（ok 分岐）と、reducer の出力を state へ反映するだけの薄い層にする。
   const savedMsgStateRef = useRef(initialSavedMsgState)
   const [savedMsgState, setSavedMsgState] = useState(initialSavedMsgState)
+
+  const loadDeps = useMemo(
+    () => ({
+      getByDate: reportStorage.getByDate,
+      assignLocation: (href: string) => window.location.assign(href),
+    }),
+    [],
+  )
+
+  const dirty = isReportDirty(data, baseline)
+
+  const runLoad = useCallback(
+    (state: ReportLoadState, date: string) => {
+      const requestId = state.loadRequestId + 1
+      const optimistic: ReportLoadState = {
+        ...state,
+        loadRequestId: requestId,
+        loadStatus: 'loading',
+        data: shouldFetchReport(date) ? { ...state.data, date } : state.data,
+      }
+      setLoadState(optimistic)
+      startLoad(state, date, loadDeps).then(setLoadState)
+    },
+    [loadDeps],
+  )
+
+  useEffect(() => {
+    const state = createInitialLoadState()
+    startLoad(state, state.data.date, loadDeps).then(setLoadState)
+  }, [loadDeps])
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (shouldPreventUnload(dirty, loadStatus)) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty, loadStatus])
+
+  useBlocker({
+    shouldBlockFn: ({ next }) => {
+      if (next.pathname !== '/timesheet' && next.pathname !== '/attendance') {
+        return false
+      }
+      if (!shouldConfirmSpaLeave(dirty, loadStatus)) {
+        return false
+      }
+      return !window.confirm(LEAVE_PAGE_CONFIRM)
+    },
+    enableBeforeUnload: false,
+  })
 
   const sendSavedMsgEvent = (event: SavedMsgEvent) => {
     const result = savedMsgReducer(savedMsgStateRef.current, event)
@@ -73,60 +152,19 @@ function HomePage() {
   }
 
   const update = <K extends keyof DailyReportData>(field: K, val: DailyReportData[K]) =>
-    setData((prev) => ({ ...prev, [field]: val }))
+    setLoadState((prev) => ({ ...prev, data: { ...prev.data, [field]: val } }))
 
-  // Load: sessionStorage (autosave) > localStorage (template)
-  useEffect(() => {
-    const saved = session.get('daily-report-autosave')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        setData((prev) => ({ ...prev, ...parsed }))
-        return
-      } catch {
-        /* ignore */
-      }
+  const handleDateChange = (nextDate: string) => {
+    const change = onDateChange(loadState, nextDate, {
+      confirm: (message) => window.confirm(message),
+    })
+    if (change.action === 'startLoad') {
+      runLoad(change.state, change.date)
     }
-    const tmpl = storage.get('daily-report-latest')
-    if (tmpl) {
-      try {
-        const parsed = JSON.parse(tmpl)
-        if (parsed.projects?.length > 0) {
-          const templateProjects = parsed.projects.map((p: Project) => ({
-            ...defaultProject(),
-            id: generateId(),
-            name: p.name,
-            tasks: p.tasks.map((t: { label: string }) => ({
-              ...defaultTask(),
-              id: generateId(),
-              label: t.label,
-            })),
-          }))
-          setData((prev) => ({
-            ...prev,
-            projects: templateProjects,
-            startTime: parsed.startTime || prev.startTime,
-            endTime: parsed.endTime || prev.endTime,
-            breakTime: parsed.breakTime || prev.breakTime,
-          }))
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [])
+  }
 
-  // Autosave debounced
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      session.set('daily-report-autosave', JSON.stringify(data))
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [data])
-
-  const saveTemplate = () => {
-    const ok = storage.set('daily-report-latest', JSON.stringify(data))
-    sendSavedMsgEvent(ok ? { type: 'templateSaveSucceeded' } : { type: 'templateSaveFailed' })
+  const handleRetry = () => {
+    runLoad(loadState, loadState.data.date)
   }
 
   const saveReport = async () => {
@@ -136,6 +174,7 @@ function HomePage() {
     }
     const result = await reportStorage.save(data)
     if (result.ok) {
+      setLoadState((prev) => markReportSaved(prev))
       sendSavedMsgEvent({ type: 'reportSaveSucceeded', date: data.date })
     } else {
       sendSavedMsgEvent({ type: 'reportSaveFailed', message: result.error ?? '' })
@@ -150,19 +189,20 @@ function HomePage() {
   const removeProject = (idx: number) =>
     update(
       'projects',
-      data.projects.filter((_, i) => i !== idx)
+      data.projects.filter((_, i) => i !== idx),
     )
   const addProject = () => update('projects', [...data.projects, defaultProject()])
 
-  // Computed
+  const { dateEnabled, retryEnabled, formLocked } = getFormControlsAccessibility(loadStatus)
+
   const dailyReport = generateDailyReport(data)
   const totalPlanned = data.projects.reduce(
     (s, p) => s + p.tasks.reduce((ss, t) => ss + (parseFloat(t.plannedHours) || 0), 0),
-    0
+    0,
   )
   const totalActual = data.projects.reduce(
     (s, p) => s + p.tasks.reduce((ss, t) => ss + (parseFloat(t.actualHours) || 0), 0),
-    0
+    0,
   )
   const projectSummaries = data.projects
     .filter((p) => p.name)
@@ -184,25 +224,29 @@ function HomePage() {
           <Input
             type="date"
             value={data.date}
-            onChange={(e) => update('date', e.target.value)}
+            disabled={!dateEnabled}
+            onChange={(e) => handleDateChange(e.target.value)}
             className="!w-[150px]"
           />
           <div className="flex items-center gap-1.5 bg-bg rounded-md px-2.5 py-1 border border-border">
             <Label>始業</Label>
             <Input
               value={data.startTime}
+              disabled={formLocked}
               onChange={(e) => update('startTime', e.target.value)}
               className="!w-[60px] !border-none !p-1"
             />
             <Label>終業</Label>
             <Input
               value={data.endTime}
+              disabled={formLocked}
               onChange={(e) => update('endTime', e.target.value)}
               className="!w-[60px] !border-none !p-1"
             />
             <Label>休憩</Label>
             <Input
               value={data.breakTime}
+              disabled={formLocked}
               onChange={(e) => update('breakTime', e.target.value)}
               className="!w-[60px] !border-none !p-1"
             />
@@ -213,18 +257,48 @@ function HomePage() {
         </div>
       </div>
 
+      {/* Load status banner */}
+      {loadStatus !== 'ready' && (
+        <div className="bg-surface border-b border-border px-6 py-2 flex items-center gap-3">
+          <span data-testid="report-load-status">
+            {loadStatus === 'loading' ? LOAD_STATUS_LOADING : LOAD_STATUS_ERROR}
+          </span>
+          {retryEnabled && (
+            <Button
+              variant="default"
+              data-testid="report-load-retry"
+              onClick={handleRetry}
+            >
+              再試行
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex border-b border-border bg-surface px-4 gap-1">
         <TabButton active={activeTab === 'input'} onClick={() => setActiveTab('input')}>
           ✏️ 入力
         </TabButton>
-        <TabButton active={activeTab === 'daily'} onClick={() => setActiveTab('daily')}>
+        <TabButton
+          active={activeTab === 'daily'}
+          disabled={formLocked}
+          onClick={() => setActiveTab('daily')}
+        >
           📝 日報
         </TabButton>
-        <TabButton active={activeTab === 'project'} onClick={() => setActiveTab('project')}>
+        <TabButton
+          active={activeTab === 'project'}
+          disabled={formLocked}
+          onClick={() => setActiveTab('project')}
+        >
           📊 PJ稼働
         </TabButton>
-        <TabButton active={activeTab === 'attendance'} onClick={() => setActiveTab('attendance')}>
+        <TabButton
+          active={activeTab === 'attendance'}
+          disabled={formLocked}
+          onClick={() => setActiveTab('attendance')}
+        >
           🕐 勤怠
         </TabButton>
       </div>
@@ -232,7 +306,7 @@ function HomePage() {
       {/* Content */}
       <div className="px-6 py-5 max-w-[960px] mx-auto">
         {activeTab === 'input' && (
-          <div className="flex flex-col gap-4">
+          <fieldset disabled={formLocked} className="flex flex-col gap-4 border-none p-0 m-0 min-w-0">
             <div className="flex justify-between items-center">
               <h2 className="text-base font-semibold text-text-dim">プロジェクト・タスク入力</h2>
               <div className="flex gap-2 items-center">
@@ -248,9 +322,6 @@ function HomePage() {
                     {savedMsgState.message}
                   </span>
                 )}
-                <Button variant="default" onClick={saveTemplate}>
-                  💾 テンプレ保存
-                </Button>
                 <Button variant="primary" onClick={saveReport}>
                   💾 日報保存
                 </Button>
@@ -279,13 +350,14 @@ function HomePage() {
             <div className="flex gap-2 justify-center pt-4 border-t border-border">
               <Button
                 variant="primary"
+                disabled={formLocked}
                 onClick={() => setActiveTab('daily')}
                 className="!px-7 !py-2.5 !text-sm"
               >
                 📝 出力を確認 →
               </Button>
             </div>
-          </div>
+          </fieldset>
         )}
 
         {activeTab === 'daily' && (
