@@ -10,7 +10,8 @@
 |---|---|---|---|---|---|---|---|
 | 1 | 3レーン並列（観点表） | 0 | 12 | 5 | — | — | 継続 |
 | 2 | 差分 | 0 | 1 | 2 | Round 1 Major 12 | FIND-VT-B-R2-001 | 継続 |
-| 3 | 差分（予定） | — | — | — | — | — | 未実施 |
+| 3 | 差分 | 0 | 2 | 2 | FIND-VT-B-R2-001 | FIND-VT-B-R3-001 / R3-002 | 継続 |
+| 4 | 差分（予定） | — | — | — | — | — | 未実施 |
 
 ## 各 Round の記録
 
@@ -22,14 +23,19 @@
 ### Round 2
 - 起動：同上 3レーン（Composer 2.5）
 - 総合：Critical 0 / Major 1 / Minor 2
-- Round 1 Major はすべて解消確認。新規 Major は投入経路（FIND-VT-B-R2-001）
-- 司令塔の反映（2026-08-16）:
-  - FIND-VT-B-R2-001: E2E 投入を別 BrowserContext の UI 保存に 1 系統凍結。`report-db-helpers` import と `saveReportFn` HTTP POST を禁止（親 E2E-6 の seroval 実測に合わせる）
-  - FIND-VT-B-R2-M01: 1.0 規定 7 に `DailyReportData` / UI フィールド対応表
-  - F-VT-R2-M01: 実装計画 5.3.4 に AC-L30 を列挙
-- 未解消として持ち越した項目：なし（反映済み。Round 3 で解消確認）
+- 司令塔の反映：E2E 投入を別 BrowserContext の UI 保存に固定。フィールド対応表。実装計画 5.3.4 に AC-L30
 
 ### Round 3
+- 起動：同上 3レーン（Composer 2.5）
+- 総合：Critical 0 / Major 2 / Minor 2
+- レーンA・C は PASS。レーンB が FAIL
+- 司令塔の反映（2026-08-16）:
+  - FIND-VT-B-R3-001: 後始末をシナリオ単位の日付に限定。ファイル全日期の一括削除を禁止。実今日は消さない
+  - FIND-VT-B-R3-002: ウォームアップに `2000-04-09` への日付変更＋成功完了待ちを明示（保存しない）
+  - Minor: 投入は各 test の Given。日付変更前に編集しない
+- 未解消として持ち越した項目：なし（反映済み。Round 4 で解消確認）
+
+### Round 4
 - 未実施
 
 ## エスカレーション
