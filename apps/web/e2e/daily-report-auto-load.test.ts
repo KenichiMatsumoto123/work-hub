@@ -128,23 +128,15 @@ async function freezePageDate(page: Page, isoOffset: string): Promise<void> {
     const frozenMs = Date.parse(iso)
     const NativeDate = Date
     const FakeDate = function (this: unknown, ...args: unknown[]) {
-      if (new.target) {
-        if (args.length === 0) {
-          return Reflect.construct(NativeDate, [frozenMs])
-        }
-        return Reflect.construct(NativeDate, args)
-      }
-      if (args.length === 0) {
-        return NativeDate(frozenMs)
-      }
-      return (NativeDate as unknown as (...a: unknown[]) => string)(...args)
-    } as unknown as DateConstructor
-    FakeDate.now = () => frozenMs
-    FakeDate.parse = NativeDate.parse.bind(NativeDate)
-    FakeDate.UTC = NativeDate.UTC.bind(NativeDate)
-    FakeDate.prototype = NativeDate.prototype
+      const constructArgs = args.length === 0 ? [frozenMs] : args
+      return Reflect.construct(NativeDate, constructArgs)
+    }
+    const FakeDateCtor = FakeDate as unknown as DateConstructor
+    FakeDateCtor.now = () => frozenMs
+    FakeDateCtor.parse = NativeDate.parse.bind(NativeDate)
+    FakeDateCtor.UTC = NativeDate.UTC.bind(NativeDate)
     Object.setPrototypeOf(FakeDate, NativeDate)
-    globalThis.Date = FakeDate
+    ;(globalThis as unknown as { Date: DateConstructor }).Date = FakeDateCtor
   }, isoOffset)
 }
 
