@@ -550,3 +550,9 @@ export const deleteReportFn = createServerFn({ method: 'POST' })
 
     return { success: true }
   })
+
+export const getReportByDateFn = createServerFn({ method: 'GET' })
+  .inputValidator((data: { date: string }) => data)
+  .handler(async () => {
+    throw new Error('STUB: getReportByDateFn')
+  })

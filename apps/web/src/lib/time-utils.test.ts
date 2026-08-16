@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 import {
   parseTime,
@@ -5,6 +7,7 @@ import {
   formatDateShort,
   getDayName,
   getDatesInMonth,
+  getToday,
 } from './time-utils'
 
 describe('parseTime', () => {
@@ -60,5 +63,39 @@ describe('getDatesInMonth', () => {
   it('2月（閏年でない）は28日', () => {
     const dates = getDatesInMonth(2026, 2)
     expect(dates).toHaveLength(28)
+  })
+})
+
+describe('AC-L01〜L03 getToday（JST）', () => {
+  it('AC-L01: JST 8/17 0:00 は 2026-08-17', () => {
+    expect(getToday(new Date('2026-08-16T15:00:00.000Z'))).toBe('2026-08-17')
+  })
+
+  it('AC-L02: JST 8/16 23:59:59 は 2026-08-16', () => {
+    expect(getToday(new Date('2026-08-16T14:59:59.000Z'))).toBe('2026-08-16')
+    // UTC 実装の偶然一致を除外（L01 も同時に満たすこと）
+    expect(getToday(new Date('2026-08-16T15:00:00.000Z'))).toBe('2026-08-17')
+  })
+
+  it('AC-L03: JST 8/16 9:00 は 2026-08-16', () => {
+    expect(getToday(new Date('2026-08-16T00:00:00.000Z'))).toBe('2026-08-16')
+    // UTC 実装の偶然一致を除外（L01 も同時に満たすこと）
+    expect(getToday(new Date('2026-08-16T15:00:00.000Z'))).toBe('2026-08-17')
+  })
+})
+
+describe('AC-L05 getToday 実装制約', () => {
+  it('toISOString / getDate / getFullYear / getMonth を使わず Intl + Asia/Tokyo + formatToParts', () => {
+    const source = readFileSync(
+      fileURLToPath(new URL('./time-utils.ts', import.meta.url)),
+      'utf-8',
+    )
+    const fnBody = source.slice(source.indexOf('export function getToday'))
+    expect(fnBody).toContain("timeZone: 'Asia/Tokyo'")
+    expect(fnBody).toContain('formatToParts')
+    expect(fnBody).not.toMatch(/\.toISOString\(/)
+    expect(fnBody).not.toMatch(/\.getDate\(/)
+    expect(fnBody).not.toMatch(/\.getFullYear\(/)
+    expect(fnBody).not.toMatch(/\.getMonth\(/)
   })
 })

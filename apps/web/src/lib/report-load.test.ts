@@ -1,0 +1,256 @@
+/**
+ * 日報読み込み純粋関数の単体テスト（AC-L15 / L20〜L24 / L44 / L45 / L50〜L54）
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  applyLoadSuccess,
+  DATE_CHANGE_CONFIRM,
+  emptyReport,
+  isLoadableReport,
+  isReportDirty,
+  isUnauthorizedError,
+  LEAVE_PAGE_CONFIRM,
+  LOAD_STATUS_ERROR,
+  LOAD_STATUS_LOADING,
+  LOGIN_ON_401_HREF,
+  shouldFetchReport,
+  shouldPreventUnload,
+} from './report-load'
+import { defaultDailyReport } from './defaults'
+import { makeProject, makeReport, makeSingleBlockReport, makeTask } from '../test/report-builders'
+import { isValidReportDate, isValidReportStructure } from '../server/report-normalize'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+function baselineReport(): ReturnType<typeof defaultDailyReport> {
+  return defaultDailyReport('2000-04-21')
+}
+
+describe('AC-L15 applyLoadSuccess / emptyReport', () => {
+  it('report が null なら emptyReport(D) と同じ初期値になる', () => {
+    const date = '2000-04-21'
+    expect(applyLoadSuccess(date, null)).toEqual(emptyReport(date))
+  })
+
+  it('非 null なら戻り値の date は必ず要求日付 D である', () => {
+    const saved = makeSingleBlockReport('2000-04-20', 'A社', [
+      { label: 'PJ', name: 'タスク', actualHours: '1' },
+    ])
+    expect(applyLoadSuccess('2000-04-21', saved).date).toBe('2000-04-21')
+  })
+})
+
+describe('AC-L20〜L24 isReportDirty', () => {
+  it('同一内容（id だけ違う）なら false', () => {
+    const a = baselineReport()
+    const b = {
+      ...a,
+      projects: [
+        makeProject({
+          ...a.projects[0],
+          id: 'other-project-id',
+          tasks: [{ ...a.projects[0].tasks[0], id: 'other-task-id' }],
+        }),
+      ],
+    }
+    expect(isReportDirty(a, b)).toBe(false)
+  })
+
+  it.each([
+    ['note', { note: 'x' }],
+    ['startTime', { startTime: '9:01' }],
+    ['endTime', { endTime: '18:01' }],
+    ['breakTime', { breakTime: '1:01' }],
+    ['goodPoints', { goodPoints: 'x' }],
+    ['badPoints', { badPoints: 'x' }],
+    ['nextPlan', { nextPlan: 'x' }],
+    ['date', { date: '2000-04-22' }],
+  ] as const)('ルート %s を1文字変えると true', (_field, patch) => {
+    const base = baselineReport()
+    const current = { ...base, ...patch }
+    expect(isReportDirty(current, base)).toBe(true)
+  })
+
+  it('projects[0].name を変えると true', () => {
+    const base = baselineReport()
+    const current = {
+      ...base,
+      projects: [makeProject({ ...base.projects[0], name: '変更' })],
+    }
+    expect(isReportDirty(current, base)).toBe(true)
+  })
+
+  it('projects[0].tasks[0].actualHours を変えると true', () => {
+    const base = baselineReport()
+    const current = {
+      ...base,
+      projects: [
+        makeProject({
+          ...base.projects[0],
+          tasks: [makeTask({ ...base.projects[0].tasks[0], actualHours: '1' })],
+        }),
+      ],
+    }
+    expect(isReportDirty(current, base)).toBe(true)
+  })
+
+  it('空白1つ追加も dirty になる', () => {
+    const base = baselineReport()
+    const current = { ...base, note: ' ' }
+    expect(isReportDirty(current, base)).toBe(true)
+  })
+
+  it('開いた直後の空初期値を baseline にしたとき何も変えていなければ false', () => {
+    const empty = emptyReport('2000-04-21')
+    expect(isReportDirty(empty, empty)).toBe(false)
+  })
+
+  it('保存成功直後の baseline と同一なら false、1フィールド変えると true', () => {
+    const saved = makeSingleBlockReport('2000-04-21', 'A社', [
+      { label: 'PJ', name: 'タスク', actualHours: '1' },
+    ])
+    expect(isReportDirty(saved, saved)).toBe(false)
+    expect(isReportDirty({ ...saved, note: 'x' }, saved)).toBe(true)
+  })
+
+  it('id を変えても dirty にならない', () => {
+    const base = makeSingleBlockReport('2000-04-21', 'A社', [
+      { label: 'PJ', name: 'タスク', actualHours: '1' },
+    ])
+    const current = {
+      ...base,
+      projects: [
+        makeProject({
+          name: 'A社',
+          tasks: [makeTask({ label: 'PJ', name: 'タスク', actualHours: '1' })],
+        }),
+      ],
+    }
+    expect(isReportDirty(current, base)).toBe(false)
+  })
+
+  it('projects 配列長が違えば true', () => {
+    const base = baselineReport()
+    const current = { ...base, projects: [...base.projects, makeProject()] }
+    expect(isReportDirty(current, base)).toBe(true)
+  })
+})
+
+describe('AC-L44 isUnauthorizedError', () => {
+  it('Response status 401 は true', () => {
+    expect(isUnauthorizedError(new Response('x', { status: 401 }))).toBe(true)
+  })
+
+  it('status 401 を持つオブジェクトは true', () => {
+    expect(isUnauthorizedError({ status: 401 })).toBe(true)
+  })
+
+  it('message に UNAUTHORIZED を含む Error は true', () => {
+    expect(isUnauthorizedError(new Error('UNAUTHORIZED'))).toBe(true)
+  })
+
+  it('ネストした cause に 401 があると true', () => {
+    expect(
+      isUnauthorizedError({ cause: new Response('x', { status: 401 }) }),
+    ).toBe(true)
+  })
+
+  it('ネストした error に UNAUTHORIZED があると true', () => {
+    expect(isUnauthorizedError({ error: new Error('UNAUTHORIZED') })).toBe(true)
+  })
+
+  it('ネストした response に 401 があると true', () => {
+    expect(
+      isUnauthorizedError({ response: { status: 401 } }),
+    ).toBe(true)
+  })
+
+  it('status 500 は false', () => {
+    expect(isUnauthorizedError(new Response('x', { status: 500 }))).toBe(false)
+  })
+
+  it('無関係な Error は false', () => {
+    expect(isUnauthorizedError(new Error('network failed'))).toBe(false)
+  })
+})
+
+describe('AC-L12 / L35 / L45 shouldFetchReport / isLoadableReport', () => {
+  it.each(['2000-04-21', '2026-08-16'])(
+    'shouldFetchReport は isValidReportDate と同じ（合格: %s）',
+    (date) => {
+      expect(shouldFetchReport(date)).toBe(isValidReportDate(date))
+    },
+  )
+
+  it.each(['', '2000-1-1', '2026-02-30', '0000-01-01'])(
+    'shouldFetchReport は isValidReportDate と同じ（不合格: %s）',
+    (date) => {
+      expect(shouldFetchReport(date)).toBe(isValidReportDate(date))
+    },
+  )
+
+  it('isLoadableReport は isValidReportStructure と同じ（合格）', () => {
+    const report = makeSingleBlockReport('2000-04-21', 'A社', [
+      { label: 'PJ', name: 'タスク', actualHours: '1' },
+    ])
+    expect(isLoadableReport(report)).toBe(isValidReportStructure(report))
+  })
+
+  it('isLoadableReport は isValidReportStructure と同じ（不合格: null）', () => {
+    expect(isLoadableReport(null)).toBe(isValidReportStructure(null))
+  })
+
+  it('isLoadableReport は isValidReportStructure と同じ（不合格: date 不正）', () => {
+    const bad = makeReport({ date: '2026-02-30', projects: [] })
+    expect(isLoadableReport(bad)).toBe(isValidReportStructure(bad))
+  })
+})
+
+describe('AC-L50 / L51 確認ダイアログ定数', () => {
+  it('DATE_CHANGE_CONFIRM の文言が設計書どおり', () => {
+    expect(DATE_CHANGE_CONFIRM).toBe(
+      '入力内容が保存されていません。日付を切り替えますか？',
+    )
+  })
+
+  it('LEAVE_PAGE_CONFIRM の文言が設計書どおり', () => {
+    expect(LEAVE_PAGE_CONFIRM).toBe(
+      '入力内容が保存されていません。このページを離れますか？',
+    )
+  })
+})
+
+describe('AC-L54 shouldPreventUnload', () => {
+  it('ready かつ dirty なら true', () => {
+    expect(shouldPreventUnload(true, 'ready')).toBe(true)
+  })
+
+  it('error なら dirty に関わらず true', () => {
+    expect(shouldPreventUnload(false, 'error')).toBe(true)
+    expect(shouldPreventUnload(true, 'error')).toBe(true)
+  })
+
+  it('loading 中は false', () => {
+    expect(shouldPreventUnload(true, 'loading')).toBe(false)
+  })
+
+  it('ready かつ非 dirty は false', () => {
+    expect(shouldPreventUnload(false, 'ready')).toBe(false)
+  })
+})
+
+describe('読み込みバナー定数', () => {
+  it('LOAD_STATUS_LOADING の文言が設計書どおり', () => {
+    expect(LOAD_STATUS_LOADING).toBe('読み込み中…')
+  })
+
+  it('LOAD_STATUS_ERROR の文言が設計書どおり', () => {
+    expect(LOAD_STATUS_ERROR).toBe('読み込みに失敗しました')
+  })
+
+  it('LOGIN_ON_401_HREF が設計書どおり', () => {
+    expect(LOGIN_ON_401_HREF).toBe('/login?redirect=/')
+  })
+})

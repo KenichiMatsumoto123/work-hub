@@ -23,9 +23,9 @@ export function defaultProject(): Project {
   }
 }
 
-export function defaultDailyReport(): DailyReportData {
+export function defaultDailyReport(date?: string): DailyReportData {
   return {
-    date: new Date().toISOString().slice(0, 10),
+    date: date ?? new Date().toISOString().slice(0, 10),
     startTime: '9:00',
     endTime: '18:00',
     breakTime: '1:00',

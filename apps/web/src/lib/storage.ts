@@ -4,6 +4,7 @@ import {
   getReportsByMonthFn,
   saveReportFn,
   deleteReportFn,
+  getReportByDateFn,
 } from '~/server/functions/reports'
 
 /** localStorage wrapper（テンプレート保存用） */
@@ -78,6 +79,14 @@ export const reportStorage = {
       return await getReportsByMonthFn({ data: { year, month } })
     } catch {
       return []
+    }
+  },
+
+  async getByDate(date: string): Promise<DailyReportData | null> {
+    try {
+      return await getReportByDateFn({ data: { date } })
+    } catch {
+      return null
     }
   },
 }
