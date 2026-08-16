@@ -1,4 +1,4 @@
-import { generateId } from './time-utils'
+import { generateId, getToday } from './time-utils'
 import type { Task, Project, DailyReportData } from './types'
 
 export function defaultTask(): Task {
@@ -23,9 +23,9 @@ export function defaultProject(): Project {
   }
 }
 
-export function defaultDailyReport(date?: string): DailyReportData {
+export function defaultDailyReport(date: string = getToday()): DailyReportData {
   return {
-    date: date ?? new Date().toISOString().slice(0, 10),
+    date,
     startTime: '9:00',
     endTime: '18:00',
     breakTime: '1:00',

@@ -707,4 +707,10 @@ FIND-VT-B-R2-001 は解消。新規は後始末範囲とウォームアップ手
 
 ---
 
+## Phase 8 でのテスト最小修正（2026-08-16）
+
+設計書 startLoad step 8 / AC-L15（成功時は `applyLoadSuccess` で完全置換）と、`report-load-flow.test.ts` の成功後 `note === '保持'` が矛盾した。マージ実装は日付切替後に未保存 note で保存済み日報を上書きするため不採用。成功後の期待を `saved.note` に合わせ、同ファイルの `DateChangeResult` 未ナローイング（tsc 8 件）を `expectStartLoad` で解消した。同期フェーズ（`onBeforeFetch`）の note 保持断言は維持。
+
+---
+
 

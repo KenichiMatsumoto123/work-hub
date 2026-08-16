@@ -83,10 +83,6 @@ export const reportStorage = {
   },
 
   async getByDate(date: string): Promise<DailyReportData | null> {
-    try {
-      return await getReportByDateFn({ data: { date } })
-    } catch {
-      return null
-    }
+    return await getReportByDateFn({ data: { date } })
   },
 }

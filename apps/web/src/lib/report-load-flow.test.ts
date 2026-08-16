@@ -13,6 +13,7 @@ import {
   onDateChange,
   shouldPreventUnload,
   startLoad,
+  type DateChangeResult,
   type ReportLoadState,
   type StartLoadDeps,
 } from './report-load'
@@ -79,6 +80,16 @@ function createDeferred<T>() {
   return { promise, resolve }
 }
 
+function expectStartLoad(
+  result: DateChangeResult,
+): Extract<DateChangeResult, { action: 'startLoad' }> {
+  expect(result.action).toBe('startLoad')
+  if (result.action !== 'startLoad') {
+    throw new Error('expected startLoad')
+  }
+  return result
+}
+
 describe('AC-L30 / L42 / L46 操作可否（getFormControlsAccessibility）', () => {
   it('loading 中は日付変更不可・再試行不可・フォーム操作不可', () => {
     expect(getFormControlsAccessibility('loading')).toEqual({
@@ -137,7 +148,7 @@ describe('startLoad：同期フェーズ・応答確定', () => {
     const result = await loadPromise
 
     expect(result.data.date).toBe('2000-04-22')
-    expect(result.data.note).toBe('保持')
+    expect(result.data.note).toBe(saved.note)
     expect(result.loadStatus).toBe('ready')
   })
 
@@ -261,10 +272,7 @@ describe('AC-L33 日付を保存済み日 D へ切替（未保存なし）', () 
       { label: 'PJ', name: 'タスク', actualHours: '2.5' },
     ])
     const state = readyState('2000-04-11')
-    const change = onDateChange(state, targetDate, { confirm: vi.fn() })
-
-    expect(change.action).toBe('startLoad')
-    expect(change.date).toBe(targetDate)
+    const change = expectStartLoad(onDateChange(state, targetDate, { confirm: vi.fn() }))
 
     const result = await startLoad(change.state, change.date, {
       getByDate: vi.fn().mockResolvedValue(saved),
@@ -280,9 +288,7 @@ describe('AC-L34 日付を行なし日 D へ切替（未保存なし）', () => 
   it('読み込み成功後に空初期値・日付欄 D・ready', async () => {
     const targetDate = '2000-04-02'
     const state = readyState('2000-04-11')
-    const change = onDateChange(state, targetDate, { confirm: vi.fn() })
-
-    expect(change.action).toBe('startLoad')
+    const change = expectStartLoad(onDateChange(state, targetDate, { confirm: vi.fn() }))
     const result = await startLoad(change.state, change.date, {
       getByDate: vi.fn().mockResolvedValue(null),
     })
@@ -334,10 +340,9 @@ describe('AC-L46 error 中の日付変更・再試行', () => {
     const change = onDateChange(errorState, targetDate, { confirm })
 
     expect(confirm).toHaveBeenCalledWith(DATE_CHANGE_CONFIRM)
-    expect(change.action).toBe('startLoad')
-    expect(change.date).toBe(targetDate)
+    const started = expectStartLoad(change)
 
-    const result = await startLoad(change.state, change.date, {
+    const result = await startLoad(started.state, started.date, {
       getByDate: vi.fn().mockResolvedValue(null),
     })
     expectEmptyReport(result.data, targetDate)
@@ -366,8 +371,7 @@ describe('onDateChange（AC-L50 / L52）', () => {
     const result = onDateChange(state, '2000-04-12', { confirm })
 
     expect(confirm).not.toHaveBeenCalled()
-    expect(result.action).toBe('startLoad')
-    expect(result.date).toBe('2000-04-12')
+    expect(expectStartLoad(result).date).toBe('2000-04-12')
   })
 
   it('AC-L50 dirty かつ confirm が true なら変更先で startLoad', async () => {
@@ -380,10 +384,9 @@ describe('onDateChange（AC-L50 / L52）', () => {
     const change = onDateChange(state, '2000-04-12', { confirm })
 
     expect(confirm).toHaveBeenCalledWith(DATE_CHANGE_CONFIRM)
-    expect(change.action).toBe('startLoad')
-    expect(change.date).toBe('2000-04-12')
+    const started = expectStartLoad(change)
 
-    const result = await startLoad(change.state, change.date, {
+    const result = await startLoad(started.state, started.date, {
       getByDate: vi.fn().mockResolvedValue(null),
     })
     expectEmptyReport(result.data, '2000-04-12')

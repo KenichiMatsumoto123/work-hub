@@ -1,8 +1,12 @@
 /**
  * 日報読み込みの純粋関数（設計書「純粋関数の配置」）
- * Phase 5 Red Phase：シグネチャ＋スタブ最小実装（実ロジック禁止）
  */
-import type { DailyReportData } from './types'
+import { defaultDailyReport } from './defaults'
+import type { DailyReportData, Project, Task } from './types'
+import {
+  isValidReportDate,
+  isValidReportStructure,
+} from '~/server/report-normalize'
 
 export const DATE_CHANGE_CONFIRM =
   '入力内容が保存されていません。日付を切り替えますか？'
@@ -38,61 +42,150 @@ export type DateChangeResult =
   | { action: 'none'; state: ReportLoadState }
   | { action: 'startLoad'; date: string; state: ReportLoadState }
 
+/** stale 応答の確定用：モジュールレベルで現行 requestId と最新 state を保持 */
+let currentLoadRequestId = 0
+let latestCommittedState: ReportLoadState | null = null
+
+function compareTasks(a: Task, b: Task): boolean {
+  return (
+    a.label === b.label &&
+    a.name === b.name &&
+    a.plannedHours === b.plannedHours &&
+    a.actualHours === b.actualHours &&
+    a.progressBefore === b.progressBefore &&
+    a.progressExpected === b.progressExpected &&
+    a.progressActual === b.progressActual
+  )
+}
+
+function compareProjects(a: Project, b: Project): boolean {
+  if (a.name !== b.name || a.plannedHours !== b.plannedHours) return false
+  if (a.tasks.length !== b.tasks.length) return false
+  for (let i = 0; i < a.tasks.length; i++) {
+    if (!compareTasks(a.tasks[i], b.tasks[i])) return false
+  }
+  return true
+}
+
 export function isReportDirty(
-  _current: DailyReportData,
-  _baseline: DailyReportData,
+  current: DailyReportData,
+  baseline: DailyReportData,
 ): boolean {
-  throw new Error('STUB: isReportDirty')
+  if (current.date !== baseline.date) return true
+  if (current.startTime !== baseline.startTime) return true
+  if (current.endTime !== baseline.endTime) return true
+  if (current.breakTime !== baseline.breakTime) return true
+  if (current.note !== baseline.note) return true
+  if (current.goodPoints !== baseline.goodPoints) return true
+  if (current.badPoints !== baseline.badPoints) return true
+  if (current.nextPlan !== baseline.nextPlan) return true
+  if (current.projects.length !== baseline.projects.length) return true
+  for (let i = 0; i < current.projects.length; i++) {
+    if (!compareProjects(current.projects[i], baseline.projects[i])) return true
+  }
+  return false
 }
 
-export function emptyReport(_date: string): DailyReportData {
-  throw new Error('STUB: emptyReport')
+export function emptyReport(date: string): DailyReportData {
+  return defaultDailyReport(date)
 }
 
-export function isUnauthorizedError(_error: unknown): boolean {
-  throw new Error('STUB: isUnauthorizedError')
+function checkUnauthorizedValue(value: unknown, visited: Set<object>): boolean {
+  if (value === null || value === undefined) return false
+
+  if (value instanceof Response && value.status === 401) return true
+
+  if (value instanceof Error && value.message.includes('UNAUTHORIZED')) return true
+
+  if (typeof value === 'object') {
+    if (visited.has(value)) return false
+    visited.add(value)
+
+    const obj = value as Record<string, unknown>
+
+    if (obj.status === 401) return true
+
+    if (typeof obj.message === 'string' && obj.message.includes('UNAUTHORIZED')) {
+      return true
+    }
+
+    if ('cause' in obj && checkUnauthorizedValue(obj.cause, visited)) return true
+    if ('error' in obj && checkUnauthorizedValue(obj.error, visited)) return true
+    if ('response' in obj && checkUnauthorizedValue(obj.response, visited)) {
+      return true
+    }
+  }
+
+  return false
 }
 
-export function shouldFetchReport(_date: string): boolean {
-  throw new Error('STUB: shouldFetchReport')
+export function isUnauthorizedError(error: unknown): boolean {
+  return checkUnauthorizedValue(error, new Set())
+}
+
+export function shouldFetchReport(date: string): boolean {
+  return isValidReportDate(date)
 }
 
 export function applyLoadSuccess(
-  _date: string,
-  _report: DailyReportData | null,
+  date: string,
+  report: DailyReportData | null,
 ): DailyReportData {
-  throw new Error('STUB: applyLoadSuccess')
+  if (report === null) return emptyReport(date)
+  return { ...report, date }
 }
 
 export function shouldPreventUnload(
-  _dirty: boolean,
-  _loadStatus: LoadStatus,
+  dirty: boolean,
+  loadStatus: LoadStatus,
 ): boolean {
-  throw new Error('STUB: shouldPreventUnload')
+  if (loadStatus === 'error') return true
+  if (loadStatus === 'ready' && dirty) return true
+  return false
 }
 
 /** AC-L51 / L56：SPA 内ヘッダー遷移 confirm（shouldPreventUnload とは別契約） */
 export function shouldConfirmSpaLeave(
-  _dirty: boolean,
-  _loadStatus: LoadStatus,
+  dirty: boolean,
+  loadStatus: LoadStatus,
 ): boolean {
-  throw new Error('STUB: shouldConfirmSpaLeave')
+  return dirty && (loadStatus === 'ready' || loadStatus === 'error')
 }
 
 /** AC-L55：保存成功後に baseline を data に揃える */
-export function markReportSaved(_state: ReportLoadState): ReportLoadState {
-  throw new Error('STUB: markReportSaved')
+export function markReportSaved(state: ReportLoadState): ReportLoadState {
+  return {
+    ...state,
+    baseline: state.data,
+    loadStatus: 'ready',
+  }
 }
 
-export function isLoadableReport(_value: unknown): boolean {
-  throw new Error('STUB: isLoadableReport')
+export function isLoadableReport(value: unknown): boolean {
+  return isValidReportStructure(value)
 }
 
 /** loading / error / ready 時の操作可否（AC-L30 / L42 / L46） */
 export function getFormControlsAccessibility(
-  _loadStatus: LoadStatus,
+  loadStatus: LoadStatus,
 ): FormControlsAccessibility {
-  throw new Error('STUB: getFormControlsAccessibility')
+  if (loadStatus === 'loading') {
+    return { dateEnabled: false, retryEnabled: false, formLocked: true }
+  }
+  if (loadStatus === 'error') {
+    return { dateEnabled: true, retryEnabled: true, formLocked: true }
+  }
+  return { dateEnabled: true, retryEnabled: false, formLocked: false }
+}
+
+function commitState(state: ReportLoadState, requestId: number): ReportLoadState {
+  latestCommittedState = state
+  currentLoadRequestId = requestId
+  return state
+}
+
+function staleResult(requestId: number): ReportLoadState {
+  return latestCommittedState!
 }
 
 /**
@@ -103,10 +196,79 @@ export async function startLoad(
   date: string,
   deps: StartLoadDeps,
 ): Promise<ReportLoadState> {
-  void state
-  void date
-  void deps
-  throw new Error('STUB: startLoad')
+  const requestId = state.loadRequestId + 1
+  currentLoadRequestId = requestId
+
+  let workingState: ReportLoadState = {
+    ...state,
+    loadRequestId: requestId,
+    loadStatus: 'loading',
+  }
+
+  if (!shouldFetchReport(date)) {
+    const empty = emptyReport('')
+    return commitState(
+      {
+        ...workingState,
+        data: empty,
+        baseline: empty,
+        loadStatus: 'ready',
+      },
+      requestId,
+    )
+  }
+
+  workingState = {
+    ...workingState,
+    data: { ...workingState.data, date },
+  }
+  deps.onBeforeFetch?.(workingState)
+
+  try {
+    const report = await deps.getByDate(date)
+
+    if (requestId !== currentLoadRequestId) {
+      return staleResult(requestId)
+    }
+
+    if (report !== null && !isLoadableReport(report)) {
+      return commitState(
+        {
+          ...workingState,
+          loadStatus: 'error',
+        },
+        requestId,
+      )
+    }
+
+    const loaded = applyLoadSuccess(date, report)
+    return commitState(
+      {
+        ...workingState,
+        data: loaded,
+        baseline: loaded,
+        loadStatus: 'ready',
+      },
+      requestId,
+    )
+  } catch (error) {
+    if (requestId !== currentLoadRequestId) {
+      return staleResult(requestId)
+    }
+
+    if (isUnauthorizedError(error)) {
+      deps.assignLocation?.(LOGIN_ON_401_HREF)
+      return workingState
+    }
+
+    return commitState(
+      {
+        ...workingState,
+        loadStatus: 'error',
+      },
+      requestId,
+    )
+  }
 }
 
 /** 日付変更の分岐（設計書「日付変更」1〜4） */
@@ -115,7 +277,15 @@ export function onDateChange(
   nextDate: string,
   deps: { confirm: (message: string) => boolean },
 ): DateChangeResult {
-  void deps
-  void nextDate
-  return { action: 'none', state }
+  if (nextDate === state.data.date) {
+    return { action: 'none', state }
+  }
+
+  if (isReportDirty(state.data, state.baseline)) {
+    if (!deps.confirm(DATE_CHANGE_CONFIRM)) {
+      return { action: 'none', state }
+    }
+  }
+
+  return { action: 'startLoad', date: nextDate, state }
 }
