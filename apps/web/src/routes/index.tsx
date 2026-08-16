@@ -1,5 +1,5 @@
 import { createFileRoute, useBlocker } from '@tanstack/react-router'
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { Input } from '~/components/ui/Input'
 import { Button } from '~/components/ui/Button'
 import { Label } from '~/components/ui/Label'
@@ -83,13 +83,15 @@ function HomePage() {
   const savedMsgStateRef = useRef(initialSavedMsgState)
   const [savedMsgState, setSavedMsgState] = useState(initialSavedMsgState)
 
-  const loadDeps = useCallback(
+  const loadDeps = useMemo(
     () => ({
       getByDate: reportStorage.getByDate,
       assignLocation: (href: string) => window.location.assign(href),
     }),
     [],
   )
+
+  const dirty = isReportDirty(data, baseline)
 
   const runLoad = useCallback(
     (state: ReportLoadState, date: string) => {
@@ -101,40 +103,33 @@ function HomePage() {
         data: shouldFetchReport(date) ? { ...state.data, date } : state.data,
       }
       setLoadState(optimistic)
-      startLoad(state, date, loadDeps()).then(setLoadState)
+      startLoad(state, date, loadDeps).then(setLoadState)
     },
     [loadDeps],
   )
 
   useEffect(() => {
-    const today = getToday()
-    const initial = emptyReport(today)
-    const state: ReportLoadState = {
-      data: initial,
-      baseline: initial,
-      loadStatus: 'loading',
-      loadRequestId: 0,
-    }
-    startLoad(state, today, loadDeps()).then(setLoadState)
+    const state = createInitialLoadState()
+    startLoad(state, state.data.date, loadDeps).then(setLoadState)
   }, [loadDeps])
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (shouldPreventUnload(isReportDirty(data, baseline), loadStatus)) {
+      if (shouldPreventUnload(dirty, loadStatus)) {
         e.preventDefault()
         e.returnValue = ''
       }
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [data, baseline, loadStatus])
+  }, [dirty, loadStatus])
 
   useBlocker({
     shouldBlockFn: ({ next }) => {
       if (next.pathname !== '/timesheet' && next.pathname !== '/attendance') {
         return false
       }
-      if (!shouldConfirmSpaLeave(isReportDirty(data, baseline), loadStatus)) {
+      if (!shouldConfirmSpaLeave(dirty, loadStatus)) {
         return false
       }
       return !window.confirm(LEAVE_PAGE_CONFIRM)

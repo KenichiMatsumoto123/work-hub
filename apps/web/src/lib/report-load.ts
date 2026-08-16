@@ -184,7 +184,7 @@ function commitState(state: ReportLoadState, requestId: number): ReportLoadState
   return state
 }
 
-function staleResult(requestId: number): ReportLoadState {
+function staleResult(): ReportLoadState {
   return latestCommittedState!
 }
 
@@ -228,7 +228,7 @@ export async function startLoad(
     const report = await deps.getByDate(date)
 
     if (requestId !== currentLoadRequestId) {
-      return staleResult(requestId)
+      return staleResult()
     }
 
     if (report !== null && !isLoadableReport(report)) {
@@ -253,7 +253,7 @@ export async function startLoad(
     )
   } catch (error) {
     if (requestId !== currentLoadRequestId) {
-      return staleResult(requestId)
+      return staleResult()
     }
 
     if (isUnauthorizedError(error)) {

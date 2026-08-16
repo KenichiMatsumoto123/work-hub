@@ -61,3 +61,51 @@ Phase 3 の人間承認済み設計を優先し、成功後の期待を `saved.n
 - 結合(DB込み) は `report-db-helpers.ts` 経由。TRUNCATE していない
 - `saveReportFn` / `isValidReportStructure` / 工数・勤怠画面は未変更
 - Vitest は createServerFn を変換しないため、handler がオブジェクトを返すと `result.result` が undefined になる。本番（Vite プラグイン変換後）は `next({ result })` で `null` / 行ありとも正しい。setup のラッパはテスト専用
+
+---
+
+## Phase 9 リファクタ記録
+
+- 実施日時：2026-08-16 09:54 UTC
+- 判定：**コード変更あり（3 件採用）**
+
+### fallow（advisory）
+
+- 実行：`npx fallow audit --base 15f5b82 --workspace apps/web` および `inspect`（`report-load.ts` / `index.tsx` / `fetch-report-by-date.ts`）／ `npx fallow dupes --workspace apps/web`
+- 検出 → 採用 / 見送り
+
+| 検出 | 観点 | 採否 | 理由 |
+|---|---|---|---|
+| unused export `storage` / `session`（`storage.ts`） | 不要コード削除 | **採用** | オートセーブ・テンプレ廃止後の消費者が無い |
+| unused export `DAY_NAMES` | 不要コード削除 | 見送り | 本機能の変更外。既存の曜日定数 |
+| unused dependency `zod` | 不要コード削除 | 見送り | 本機能の変更外 |
+| `checkUnauthorizedValue` 複雑度 HIGH | 責務分離 | 見送り | AC-L44 のネスト走査そのもの。分割は過剰抽象 |
+| `HomePage` 複雑度 | 責務分離 | 一部採用 | 初期状態の重複だけ解消。タブ UI の切り出しは既存画面の責務で本機能スコープ外 |
+| `resolveMastersAndInsertEntries` 複雑度 | 責務分離 | 見送り | `saveReportFn` 経路。本機能で未変更 |
+| dupes（schema / timesheet / attendance） | 重複削除 | 見送り | 本機能の変更外 |
+
+### 5観点の人手点検（本機能の差分）
+
+| 観点 | 結果 |
+|---|---|
+| 重複削除 | `createInitialLoadState` をマウント時 `startLoad` と共有。`isReportDirty` の二重呼び出しを `dirty` に集約 |
+| 命名改善 | `staleResult` の未使用引数を削除 |
+| 責務分離 | 読み込みロジックは `report-load.ts` のまま。画面は呼び出し層 |
+| 抽象度の調整 | `emptyReport` / `shouldFetchReport` エイリアスは設計・テスト契約のため維持。`loadDeps` は `useMemo` のオブジェクトに変更（毎呼び出しで作らない） |
+| 可読性向上 | 上記。`getToday` のファイル位置は AC-L05 のソース slice のため動かさない |
+
+### 実施項目
+
+1. `index.tsx`：初期状態の重複削除、`dirty` 集約、`loadDeps` を `useMemo`
+2. `storage.ts`：未使用の `storage` / `session` を削除
+3. `report-load.ts`：`staleResult` の未使用引数を削除
+
+### ゲート再確認
+
+| チェック | 結果 |
+|---|---|
+| `npm run test` | PASS（325） |
+| `npm run test:integration` | PASS（77） |
+| Lint | 該当なし |
+| `npm run check-types` | PASS |
+| `npm run build` | PASS |
