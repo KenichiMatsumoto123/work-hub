@@ -159,7 +159,7 @@ describe('6-2 requireSession の静的検証', () => {
     expect(slices.size).toBeGreaterThan(0)
   })
 
-  it.each(['saveReportFn', 'deleteReportFn'])(
+  it.each(['saveReportFn', 'deleteReportFn', 'getReportFn', 'getAllReportsFn', 'getReportsByMonthFn'])(
     '%s の定義に requireSession を含む .middleware がある',
     (name) => {
       const slice = slices.get(name)

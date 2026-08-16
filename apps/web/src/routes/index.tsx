@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { Input } from '~/components/ui/Input'
 import { Button } from '~/components/ui/Button'
 import { Label } from '~/components/ui/Label'
@@ -27,6 +27,72 @@ export const Route = createFileRoute('/')({
 
 type TabId = 'input' | 'daily' | 'project' | 'attendance'
 
+const AUTOSAVE_KEY_PREFIX = 'daily-report-autosave:'
+
+function autosaveKey(date: string): string {
+  return `${AUTOSAVE_KEY_PREFIX}${date}`
+}
+
+/** localStorage テンプレートを適用した初期フォームを生成する */
+function applyTemplate(date: string): DailyReportData {
+  const base = { ...defaultDailyReport(), date }
+  const tmpl = storage.get('daily-report-latest')
+  if (!tmpl) return base
+  try {
+    const parsed = JSON.parse(tmpl)
+    if (!parsed.projects?.length) return base
+    const templateProjects = parsed.projects.map((p: Project) => ({
+      ...defaultProject(),
+      id: generateId(),
+      name: p.name,
+      tasks: p.tasks.map((t: { label: string }) => ({
+        ...defaultTask(),
+        id: generateId(),
+        label: t.label,
+      })),
+    }))
+    return {
+      ...base,
+      projects: templateProjects,
+      startTime: parsed.startTime || base.startTime,
+      endTime: parsed.endTime || base.endTime,
+      breakTime: parsed.breakTime || base.breakTime,
+    }
+  } catch {
+    return base
+  }
+}
+
+/** 日付に対応するフォームデータを解決する（DB > 日付別 autosave > テンプレート > デフォルト） */
+async function resolveReportForDate(date: string): Promise<DailyReportData> {
+  const saved = await reportStorage.getByDate(date)
+  if (saved) return saved
+
+  const draft = session.get(autosaveKey(date))
+  if (draft) {
+    try {
+      return { ...JSON.parse(draft), date }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 旧形式のグローバル autosave（日付キー移行以前の下位互換）
+  const legacyDraft = session.get('daily-report-autosave')
+  if (legacyDraft) {
+    try {
+      const parsed = JSON.parse(legacyDraft)
+      if (parsed.date === date) {
+        return { ...parsed, date }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return applyTemplate(date)
+}
+
 function TabButton({
   active,
   children,
@@ -49,8 +115,12 @@ function TabButton({
 }
 
 function HomePage() {
+  const [selectedDate, setSelectedDate] = useState(defaultDailyReport().date)
   const [data, setData] = useState<DailyReportData>(defaultDailyReport())
+  const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabId>('input')
+  const dataRef = useRef(data)
+  dataRef.current = data
 
   // 保存メッセージ（savedMsg）の状態管理は ~/lib/saved-msg.ts の reducer に委ねる
   // （設計書「UI の変更（エラー表示）> 実装構造の規定」）。コンポーネント側は
@@ -75,54 +145,38 @@ function HomePage() {
   const update = <K extends keyof DailyReportData>(field: K, val: DailyReportData[K]) =>
     setData((prev) => ({ ...prev, [field]: val }))
 
-  // Load: sessionStorage (autosave) > localStorage (template)
-  useEffect(() => {
-    const saved = session.get('daily-report-autosave')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        setData((prev) => ({ ...prev, ...parsed }))
-        return
-      } catch {
-        /* ignore */
-      }
-    }
-    const tmpl = storage.get('daily-report-latest')
-    if (tmpl) {
-      try {
-        const parsed = JSON.parse(tmpl)
-        if (parsed.projects?.length > 0) {
-          const templateProjects = parsed.projects.map((p: Project) => ({
-            ...defaultProject(),
-            id: generateId(),
-            name: p.name,
-            tasks: p.tasks.map((t: { label: string }) => ({
-              ...defaultTask(),
-              id: generateId(),
-              label: t.label,
-            })),
-          }))
-          setData((prev) => ({
-            ...prev,
-            projects: templateProjects,
-            startTime: parsed.startTime || prev.startTime,
-            endTime: parsed.endTime || prev.endTime,
-            breakTime: parsed.breakTime || prev.breakTime,
-          }))
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [])
+  const handleDateChange = useCallback((newDate: string) => {
+    if (newDate === selectedDate) return
+    session.set(
+      autosaveKey(selectedDate),
+      JSON.stringify({ ...dataRef.current, date: selectedDate }),
+    )
+    setSelectedDate(newDate)
+  }, [selectedDate])
 
-  // Autosave debounced
+  // 画面表示時・日付切替時に DB から入力済み内容を読み込む
   useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    void resolveReportForDate(selectedDate).then((report) => {
+      if (!cancelled) {
+        setData(report)
+        setIsLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedDate])
+
+  // Autosave debounced（日付ごとに保存）
+  useEffect(() => {
+    if (isLoading) return
     const timer = setTimeout(() => {
-      session.set('daily-report-autosave', JSON.stringify(data))
+      session.set(autosaveKey(selectedDate), JSON.stringify({ ...data, date: selectedDate }))
     }, 500)
     return () => clearTimeout(timer)
-  }, [data])
+  }, [data, selectedDate, isLoading])
 
   const saveTemplate = () => {
     const ok = storage.set('daily-report-latest', JSON.stringify(data))
@@ -130,13 +184,13 @@ function HomePage() {
   }
 
   const saveReport = async () => {
-    if (!data.date) {
+    if (!selectedDate) {
       sendSavedMsgEvent({ type: 'dateMissing' })
       return
     }
-    const result = await reportStorage.save(data)
+    const result = await reportStorage.save({ ...data, date: selectedDate })
     if (result.ok) {
-      sendSavedMsgEvent({ type: 'reportSaveSucceeded', date: data.date })
+      sendSavedMsgEvent({ type: 'reportSaveSucceeded', date: selectedDate })
     } else {
       sendSavedMsgEvent({ type: 'reportSaveFailed', message: result.error ?? '' })
     }
@@ -183,9 +237,10 @@ function HomePage() {
         <div className="flex gap-2.5 items-center flex-wrap">
           <Input
             type="date"
-            value={data.date}
-            onChange={(e) => update('date', e.target.value)}
+            value={selectedDate}
+            onChange={(e) => handleDateChange(e.target.value)}
             className="!w-[150px]"
+            disabled={isLoading}
           />
           <div className="flex items-center gap-1.5 bg-bg rounded-md px-2.5 py-1 border border-border">
             <Label>始業</Label>
@@ -231,7 +286,10 @@ function HomePage() {
 
       {/* Content */}
       <div className="px-6 py-5 max-w-[960px] mx-auto">
-        {activeTab === 'input' && (
+        {isLoading && (
+          <p className="text-sm text-text-dim text-center py-4">読み込み中...</p>
+        )}
+        {!isLoading && activeTab === 'input' && (
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
               <h2 className="text-base font-semibold text-text-dim">プロジェクト・タスク入力</h2>
@@ -288,7 +346,7 @@ function HomePage() {
           </div>
         )}
 
-        {activeTab === 'daily' && (
+        {!isLoading && activeTab === 'daily' && (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className="text-lg font-bold mb-1">(1) 日報テキスト</h2>
@@ -305,7 +363,7 @@ function HomePage() {
           </div>
         )}
 
-        {activeTab === 'project' && (
+        {!isLoading && activeTab === 'project' && (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className="text-lg font-bold mb-1">(2) プロジェクト別稼働報告</h2>
@@ -349,7 +407,7 @@ function HomePage() {
           </div>
         )}
 
-        {activeTab === 'attendance' && (
+        {!isLoading && activeTab === 'attendance' && (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className="text-lg font-bold mb-1">(3) 勤怠報告</h2>

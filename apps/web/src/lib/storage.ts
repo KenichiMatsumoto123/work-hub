@@ -1,6 +1,7 @@
 import type { DailyReportData, StoredReports } from './types'
 import {
   getAllReportsFn,
+  getReportFn,
   getReportsByMonthFn,
   saveReportFn,
   deleteReportFn,
@@ -78,6 +79,14 @@ export const reportStorage = {
       return await getReportsByMonthFn({ data: { year, month } })
     } catch {
       return []
+    }
+  },
+
+  async getByDate(date: string): Promise<DailyReportData | null> {
+    try {
+      return await getReportFn({ data: { date } })
+    } catch {
+      return null
     }
   },
 }

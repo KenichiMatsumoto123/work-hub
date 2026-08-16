@@ -56,6 +56,22 @@ export const getAllReportsFn = createServerFn({ method: 'GET' })
     return result
   })
 
+export const getReportFn = createServerFn({ method: 'GET' })
+  .middleware([requireSession])
+  .inputValidator((data: { date: string }) => data)
+  .handler(async ({ data }) => {
+    if (!isValidReportDate(data.date)) {
+      return null
+    }
+    const rows = await db
+      .select()
+      .from(dailyReports)
+      .where(eq(dailyReports.date, data.date))
+      .limit(1)
+    if (rows.length === 0) return null
+    return rowToReport(rows[0])
+  })
+
 export const getReportsByMonthFn = createServerFn({ method: 'GET' })
   .middleware([requireSession])
   .inputValidator((data: { year: number; month: number }) => data)
