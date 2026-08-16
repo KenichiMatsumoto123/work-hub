@@ -160,3 +160,39 @@
 | MC-5 | PASS |
 | MC-6 | PASS（Group B 内 ❌/⚠️ なし） |
 | MC-9 | PASS |
+
+---
+
+# Phase 7 人間レビュー判定
+
+- **判定日時**: 2026-08-16
+- **判定**: **承認**（発話「テストを承認します」）
+- **対象**: Phase 6 Round 2 で収束した Group B テスト（単体・結合内部・既存結合の期待値書き換え）および Red Phase 証拠
+- **Critical / Major**: 0 / 0（Round 2 で解消済み。FIND-B-01・FIND-C-01 は再開しない）
+- **観点表 1章**: 本記載は 2026-08-16 人間判断でスキップ済み。本承認はそれを覆さない。実装計画 5.5 の新規結合はコード化しない
+- **観点表 2章（E2E）**: 本差分の新規シナリオは起案しない。親 E2E-1〜7 の維持を承認する。Playwright の新規コード化はしない（Phase 10 で親 7 本を退行確認）
+
+## Minor の取り扱い方針
+
+lean 運用。承認時に個別の修正指示はなかったため、**文書化のみで通過**する。Phase 8 はテストを変更しない。
+
+| ID | 内容 | 方針 |
+|---|---|---|
+| FIND-B-02 | 2-7 describe 標題に失効 AC-30・AC-46 が残る | 文書化のみ |
+| FIND-B-03 | 単体ヘッダが AC-30・AC-46 を根拠列挙したまま | 文書化のみ |
+| FIND-B-05 | 5-5 が `projects` 非作成を assert していない | 文書化のみ（5.5 スキップに含む） |
+| FIND-C-02 | vitest 生出力が証拠に無い | 文書化のみ |
+| FIND-C-03 | 観点表 0章の非該当に理由列が無い | 文書化のみ |
+| FIND-C-04 | `impl-files-unchanged` に git 引用が無い | 文書化のみ（証拠改訂済みの範囲で十分） |
+| FIND-A2-01 | AC-Z14 がモックの `transaction` 名に完全一致 | 文書化のみ |
+| FIND-C2-01 | `reports.test.ts` 先頭コメントと AC-Z14 の期待が食い違う | 文書化のみ |
+
+## 凍結するテスト
+
+Phase 8 以降、次を変更してはならない。
+
+- `apps/web/src/server/report-normalize.test.ts`（判定 2・判定 4 の 0 系。`"-0"` の期待 value は `-0`）
+- `apps/web/src/server/functions/reports.test.ts`（AC-Z13・AC-Z14）
+- `apps/web/src/server/functions/reports-constraints.integration.test.ts`（`"0.004"` / `"0.0000001"` → `['0.00']`）
+- `apps/web/src/server/functions/reports-common.integration.test.ts`（5-11 AC-Z16、5-5、5-7 ②）
+
