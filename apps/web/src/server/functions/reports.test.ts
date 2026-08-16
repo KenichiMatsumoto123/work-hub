@@ -352,6 +352,31 @@ describe('名前の長さ超過メッセージ（AC-38・6-3）', () => {
     )
   })
 
+  it.each(['0', '0.004'] as const)(
+    '実績h "%s" の 256 文字タスク名は長さ超過テンプレートで失敗する（AC-Z13）',
+    async (actualHours) => {
+      const title = nameOfLength(256)
+      const data = makeSingleBlockReport('2000-01-01', 'A社', [
+        { label: '基幹刷新', name: title, actualHours },
+      ])
+
+      expect(await messageOf(() => save(data))).toBe(
+        [長さ見出し, `タスク名: 「${title.slice(0, 30)}」（256文字）`].join('\n'),
+      )
+    },
+  )
+
+  it('実績h が空でタスク名が 300 文字の行は長さ超過メッセージでは失敗しない（AC-Z14）', async () => {
+    const title = nameOfLength(300)
+    const data = makeSingleBlockReport('2000-01-01', 'A社', [
+      { label: '基幹刷新', name: title, actualHours: '' },
+    ])
+
+    expect(await messageOf(() => save(data))).toBe(
+      '検証エラーの経路で DB に触れました: transaction',
+    )
+  })
+
 })
 
 // ---------------------------------------------------------------------------

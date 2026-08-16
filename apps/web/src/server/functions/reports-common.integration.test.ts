@@ -228,14 +228,14 @@ describe('5-4 null / undefined / 空文字（名前系・AC-23〜AC-26・AC-28�
   })
 })
 
-describe('5-5 null / undefined / 空文字（実績h・AC-29・AC-30）', () => {
+describe('5-5 null / undefined / 空文字（実績h・AC-29・AC-Z07・AC-Z08）', () => {
   const DATE = '2000-03-01'
   const PREFIX = 'IT0505-'
 
   afterEach(() => cleanup(PREFIX, [DATE]))
 
   it('数値にならない実績h の行は throw せず実績も作られない', async () => {
-    const values = ['', '   ', 'abc', '時間', '0', '-3']
+    const values = ['', '   ', 'abc', '時間', '-3']
 
     const message = await errorMessageOf(() =>
       saveReport(
@@ -338,7 +338,7 @@ describe('5-6 不正な型のフォールバック（AC-53・AC-69）', () => {
   })
 })
 
-describe('5-7 想定外の値のフォールバック（AC-35・AC-30・AC-47）', () => {
+describe('5-7 想定外の値のフォールバック（AC-35・AC-Z04・AC-47）', () => {
   const PREFIX = 'IT0507-'
   const HOURS_SUFFIX_DATE = '2000-03-03'
   const HEX_DATE = '2000-03-11'
@@ -361,7 +361,7 @@ describe('5-7 想定外の値のフォールバック（AC-35・AC-30・AC-47）
     })
   })
 
-  it('② "0x10" は実績が作られず throw もしない（AC-30）', async () => {
+  it('② "0x10" は 0.00 として記録される（AC-Z04）', async () => {
     const message = await errorMessageOf(() =>
       saveReport(
         makeSingleBlockReport(HEX_DATE, `${PREFIX}A社`, [
@@ -370,9 +370,9 @@ describe('5-7 想定外の値のフォールバック（AC-35・AC-30・AC-47）
       ),
     )
 
-    expect({ message, entries: await entrySummaryOfDate(HEX_DATE) }).toEqual({
+    expect({ message, entries: await entriesByTitle(HEX_DATE) }).toEqual({
       message: '（throw しなかった）',
-      entries: { count: 0, total: 0 },
+      entries: { [`${PREFIX}16進`]: '0.00' },
     })
   })
 
@@ -665,7 +665,7 @@ describe('5-10 日付検証（AC-73・AC-74・AC-76〜AC-78・AC-83〜AC-85）',
   })
 })
 
-describe('5-11 有効行と無効行が混在する日報（AC-03・AC-01）', () => {
+describe('5-11 有効行と無効行が混在する日報（AC-Z16）', () => {
   const DATE = '2000-03-06'
   const PREFIX = 'IT0511-'
 
@@ -692,8 +692,8 @@ describe('5-11 有効行と無効行が混在する日報（AC-03・AC-01）', (
       summary: await entrySummaryOfDate(DATE),
       rows: await entriesByTitle(DATE),
     }).toEqual({
-      summary: { count: 2, total: 10.18 },
-      rows: { [`${PREFIX}R1`]: '7.50', [`${PREFIX}R2`]: '2.68' },
+      summary: { count: 3, total: 10.18 },
+      rows: { [`${PREFIX}R1`]: '7.50', [`${PREFIX}R2`]: '2.68', [`${PREFIX}R3`]: '0.00' },
     })
   })
 
@@ -704,8 +704,8 @@ describe('5-11 有効行と無効行が混在する日報（AC-03・AC-01）', (
       summary: await entrySummaryOfDate(DATE),
       rows: await entriesByTitle(DATE),
     }).toEqual({
-      summary: { count: 2, total: 10.18 },
-      rows: { [`${PREFIX}R2`]: '7.50', [`${PREFIX}R4`]: '2.68' },
+      summary: { count: 3, total: 10.18 },
+      rows: { [`${PREFIX}R2`]: '7.50', [`${PREFIX}R3`]: '0.00', [`${PREFIX}R4`]: '2.68' },
     })
   })
 })

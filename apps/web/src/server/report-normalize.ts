@@ -45,18 +45,19 @@ export type HoursClassification =
 
 /**
  * R-2: 実績h の判定（判定 1〜4 を規定の順序で適用する）。
- * 判定 4 は能動条件（`0.005 以上 かつ 24.005 未満`）で定義する。
+ * 判定 4 は能動条件（`0` 以上 かつ `24.005` 未満）で定義する。
+ * 根拠：差分設計「実績0hの保存」が親 R-2 を上書き。
  */
 export function classifyActualHours(raw: unknown): HoursClassification {
   const value = parseFloat(toInputString(raw))
 
   // 判定 1: NaN はスキップ
   if (Number.isNaN(value)) return { kind: 'skip' }
-  // 判定 2: 0.005 未満はスキップ（0・負数・微小値を含む）
-  if (value < 0.005) return { kind: 'skip' }
+  // 判定 2: 0 未満はスキップ（負数・-Infinity を含む。-0 は JS では 0 未満ではない）
+  if (value < 0) return { kind: 'skip' }
   // 判定 3: 24.005 以上は保存全体をエラーにする対象
   if (value >= 24.005) return { kind: 'over', value }
-  // 判定 4: 0.005 以上 24.005 未満が対象行
+  // 判定 4: 0 以上 24.005 未満が対象行（parseFloat の結果をそのまま返す）
   return { kind: 'target', value }
 }
 

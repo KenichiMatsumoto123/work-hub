@@ -3,7 +3,8 @@
  *
  * 根拠：設計書「変換ルール仕様」の R-1〜R-7 と、AC-16〜AC-18・AC-23〜AC-30・AC-35・
  * AC-46・AC-47・AC-48・AC-53・AC-56・AC-66・AC-67・AC-69・AC-73〜AC-78・AC-83〜AC-85。
- * R-2 の期待値は設計書「具体的な分類」表（Phase 5 のテストの根拠として明示されている）。
+ * R-2 の期待値は親設計の分類表を、差分設計「実績0hの保存」の分類表で上書きした値
+ * （判定 2 は `value < 0`。AC-Z01・AC-Z05・AC-Z06。親 AC-30・AC-46 は失効）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
@@ -75,8 +76,8 @@ describe('R-2 classifyActualHours：判定 1（parseFloat が NaN）', () => {
   )
 })
 
-describe('R-2 classifyActualHours：判定 2（0.005 未満）', () => {
-  it.each([['0'], ['-3'], ['0.004'], ['0.0000001'], ['0x10']])(
+describe('R-2 classifyActualHours：判定 2（0 未満）', () => {
+  it.each([['-3'], ['-0.004'], ['-Infinity']])(
     '%s はスキップする',
     (input) => {
       expect(classifyActualHours(input)).toEqual({ kind: 'skip' })
@@ -111,6 +112,35 @@ describe('R-2 classifyActualHours：判定 4（対象行）', () => {
 
   it('数値型で届いた実績h も文字列化を経て対象行になる（AC-53）', () => {
     expect(classifyActualHours(7.5)).toEqual({ kind: 'target', value: 7.5 })
+  })
+
+  it('"0" は対象行になる（AC-Z01）', () => {
+    expect(classifyActualHours('0')).toEqual({ kind: 'target', value: 0 })
+  })
+
+  it('"0.0" は対象行になる（AC-Z01）', () => {
+    expect(classifyActualHours('0.0')).toEqual({ kind: 'target', value: 0 })
+  })
+
+  it('"0h" は対象行になる（AC-Z01）', () => {
+    expect(classifyActualHours('0h')).toEqual({ kind: 'target', value: 0 })
+  })
+
+  it.each([
+    ['0.004', 0.004],
+    ['0x10', 0],
+    [' 0', 0],
+    ['0.00', 0],
+    ['0,5', 0],
+    ['-0', -0],
+    ['0.0000001', 1e-7],
+    ['0.000001', 0.000001],
+  ])('%s は対象行になる', (input, value) => {
+    expect(classifyActualHours(input)).toEqual({ kind: 'target', value })
+  })
+
+  it('数値型 0 で届いた実績h も対象行になる（AC-Z06）', () => {
+    expect(classifyActualHours(0)).toEqual({ kind: 'target', value: 0 })
   })
 })
 
