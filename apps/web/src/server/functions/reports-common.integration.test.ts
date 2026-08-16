@@ -665,7 +665,7 @@ describe('5-10 日付検証（AC-73・AC-74・AC-76〜AC-78・AC-83〜AC-85）',
   })
 })
 
-describe('5-11 有効行と無効行が混在する日報（AC-03・AC-01）', () => {
+describe('5-11 有効行と無効行が混在する日報（AC-Z16）', () => {
   const DATE = '2000-03-06'
   const PREFIX = 'IT0511-'
 
@@ -692,8 +692,8 @@ describe('5-11 有効行と無効行が混在する日報（AC-03・AC-01）', (
       summary: await entrySummaryOfDate(DATE),
       rows: await entriesByTitle(DATE),
     }).toEqual({
-      summary: { count: 2, total: 10.18 },
-      rows: { [`${PREFIX}R1`]: '7.50', [`${PREFIX}R2`]: '2.68' },
+      summary: { count: 3, total: 10.18 },
+      rows: { [`${PREFIX}R1`]: '7.50', [`${PREFIX}R2`]: '2.68', [`${PREFIX}R3`]: '0.00' },
     })
   })
 
@@ -704,8 +704,8 @@ describe('5-11 有効行と無効行が混在する日報（AC-03・AC-01）', (
       summary: await entrySummaryOfDate(DATE),
       rows: await entriesByTitle(DATE),
     }).toEqual({
-      summary: { count: 2, total: 10.18 },
-      rows: { [`${PREFIX}R2`]: '7.50', [`${PREFIX}R4`]: '2.68' },
+      summary: { count: 3, total: 10.18 },
+      rows: { [`${PREFIX}R2`]: '7.50', [`${PREFIX}R3`]: '0.00', [`${PREFIX}R4`]: '2.68' },
     })
   })
 })
