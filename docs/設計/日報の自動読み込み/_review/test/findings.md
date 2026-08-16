@@ -635,4 +635,76 @@ FIND-VT-B-R2-001 は解消。新規は後始末範囲とウォームアップ手
 
 不要。設計書は変更しない。
 
+---
+
+# テスト 敵対的レビュー結果（Phase 6 Round 3）
+
+- **対象**: Round 2 修正差分（`markReportSaved` / `shouldConfirmSpaLeave` / `onBeforeFetch` / AC-L53 タブ断片）
+- **レビュー日時**: 2026-08-16
+- **方式**: 差分・3レーン並列。must-catch 毎周実施
+- **Phase 7**: スキップ
+- **総合判定**: **PASS**（Critical 0・Major 0）
+
+## サマリー
+
+| Severity | 件数 |
+|---|---|
+| Critical | 0 |
+| Major    | 0 |
+| Minor    | 6 |
+
+### Critical / Major findings 見出し一覧
+
+なし
+
+## 前回解消確認
+
+| FIND-ID | 解消 |
+|---|---|
+| FIND-P6-A-R2-001 | 解消（`markReportSaved` 出力で検証） |
+| FIND-P6-A-R2-002 | 解消（`onBeforeFetch` + deferred。完走後は ready） |
+| FIND-P6-A-R2-003 | 解消（設計書「少なくとも export」＋実装計画 5.3.4 が関数名を明記。3 状態は AC 写像であり FORM_CONTROLS 列挙ではない） |
+| FIND-P6-B-R2-001 | 解消（`shouldConfirmSpaLeave` の it.each。error 非 dirty は false。`shouldPreventUnload` は AC-L54 のみ） |
+| レーンC Round 2 PASS | 維持。スタブ再混入なし。証拠 91/234/325 実測一致 |
+
+マトリクス: ❌ 0。AC-L51 / L56 は ✅。AC-L35 の `dateMissing` は ⚠️ 継続（Minor）。
+
+## Findings（Critical / Major）
+
+なし
+
+## Minor（1行のみ）
+
+- FIND-P6-A-R3-M01: AC-L55 で保存前 dirty true の前提 assert が無い（`report-load-flow.test.ts`）
+- FIND-P6-A-R3-M02: AC-L55 が `shouldConfirmSpaLeave` 連鎖を未検証
+- FIND-P6-A-R3-M03: `expectEmptyReport` リテラル二重管理
+- FIND-P6-B-R3-M01: AC-L35 `dateMissing` は文字列存在のみ（R2-M01 継続）
+- FIND-P6-B-R3-M02: AC-L55 が SPA 離脱を `shouldConfirmSpaLeave` で未断言
+- FIND-P6-B-R3-M03: `report-load.test.ts` ファイルコメントが AC 一覧と乖離
+- FIND-P6-C-003: `reports.test.ts` describe の「6-2」ラベル（R1 継続）
+
+## レビュー観点ごとの判定
+
+| 観点 | レーン | 判定 | 裏付け |
+|---|---|---|---|
+| トートロジー検出 | A | PASS | R2-001 解消。Red PASS は定数等のみ |
+| 実装詳細の過剰束縛 | A | PASS | R2-002/R2-003 解消 |
+| 受け入れ条件との対応 | B | PASS | ❌ 0。L51/L56 ✅ |
+| エッジケース・例外系の網羅 | B | PASS | SPA × dirty 分岐と beforeunload の差を対置 |
+| 未決事項の温存 | B | PASS | TBD なし |
+| セキュリティ・品質観点 | C | PASS | MC-2/3 N/A 整合 |
+| Red Phase log の妥当性 | C | PASS | 91/234/325 実測一致。スタブ throw |
+
+## 仕様決定要否
+
+不要。
+
+## Phase 7 人間レビュー判定
+
+- **判定**: スキップ（フロー設定）／収束をもって承認
+- **根拠**: `_flow-config.md` で Phase 7 スキップ。Round 3 で Critical 0・Major 0。Major の文書化通過は使っていない
+- **Minor の取り扱い**: 記録のみで通過（lean）。Phase 8 でテストは変更しない
+
+---
+
 
