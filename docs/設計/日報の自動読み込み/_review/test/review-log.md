@@ -52,14 +52,21 @@
 | Round | 方式 | Critical | Major | Minor | 解消済 | 新規 | 判定 |
 |---|---|---|---|---|---|---|---|
 | 1 | フル（3レーン並列） | 2 | 14 | 13 | — | — | 継続 |
+| 2 | 差分 | 0 | 4 | 6 | Critical 2 と Major 多数 | A-R2-001〜003 / B-R2-001 | 継続 |
 
 ## 各 Round の記録
 
 ### Round 1
 - 起動レーン：A 欺瞞性 / B 仕様対応 / C セキュリティと証拠（Composer 2.5）
 - 総合：Critical 2 / Major 14 / Minor 13
-- 修正内容：未着手（test-builder へ委譲）
-- 未解消として持ち越した項目：FIND-P6-B-001 / B-002 / A-001〜A-005 / B-003〜B-009 / C-001 / C-002
+- 修正内容：test-builder が `startLoad` 単一化、AC-L33/L34/L41 等追加、スタブ実ロジック除去。司令塔が Red 再検証（89 FAIL / 226 PASS）
+- 未解消として持ち越した項目：Round 2 へ
+
+### Round 2
+- 起動レーン：同上 3レーン（差分）
+- 総合：Critical 0 / Major 4 / Minor 6
+- 修正内容：未着手（test-builder へ）
+- 未解消：FIND-P6-A-R2-001 / R2-002 / R2-003 / FIND-P6-B-R2-001
 
 ## エスカレーション（Phase 6）
 

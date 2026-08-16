@@ -534,4 +534,105 @@ FIND-VT-B-R2-001 は解消。新規は後始末範囲とウォームアップ手
 
 不要。承認済み設計書の変更は行わない。A-003/A-005 はテストを設計書の `startLoad` / 公開関数一覧に寄せて解消する。
 
+---
+
+# テスト 敵対的レビュー結果（Phase 6 Round 2）
+
+- **対象**: Round 1 修正差分（`report-load.ts` / `report-load-flow.test.ts` / `report-load.test.ts` / `defaults.test.ts` / `index.report-load.test.ts` / `reports.test.ts` / `red-phase-evidence.md`）
+- **レビュー日時**: 2026-08-16
+- **方式**: 差分・3レーン並列。must-catch 毎周実施
+- **Phase 7**: スキップ
+- **総合判定**: FAIL
+
+## サマリー
+
+| Severity | 件数 |
+|---|---|
+| Critical | 0 |
+| Major    | 4 |
+| Minor    | 6 |
+
+### Critical / Major findings 見出し一覧
+
+- **FIND-P6-A-R2-001**: AC-L55 が保存ハンドラを経ず自己構成のトートロジー
+- **FIND-P6-A-R2-002**: `startLoad` 完了後に `loading` を期待し設計と矛盾
+- **FIND-P6-A-R2-003**: 設計書 export 外の `getFormControlsAccessibility` を戻り値固定
+- **FIND-P6-B-R2-001**: AC-L51 / AC-L56 の SPA confirm を `shouldPreventUnload` と混同
+
+## 前回解消確認
+
+| FIND-ID | 解消 |
+|---|---|
+| FIND-P6-B-001 / B-002 | 解消（Critical 0） |
+| FIND-P6-A-001 / A-002 / A-003 / A-004 | 解消 |
+| FIND-P6-A-005 | 部分的（R2-003 に残存） |
+| FIND-P6-B-003 / B-004 / B-005 / B-006 / B-008 / B-009 | 解消 |
+| FIND-P6-B-007 | 未解消（R2-001） |
+| FIND-P6-C-001 / C-002 | 解消 |
+
+マトリクス: 前回 ❌ 7 件はすべて昇格。❌ 残存なし。⚠️ は L35/L51/L56。
+
+## Findings（Critical / Major）
+
+### FIND-P6-A-R2-001: AC-L55 が保存ハンドラを経ず自己構成のトートロジー
+- **観点 / レーン**: トートロジー検出（MC-1）（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load-flow.test.ts:383-402`
+- **問題**: `afterSave` を `data: saved, baseline: saved` と手動構築したうえで dirty false を断言している。保存成功で `baseline = data` する経路を呼ばない。`shouldPreventUnload(false, 'ready')` はリテラル `false` を渡している。
+- **影響**: 保存後 baseline 未更新が Green 化する（FIND-P6-B-006 と同根）。
+- **推奨対応**: 保存成功の入出力関数（例: `markReportSaved(state)`）の**出力**に対して dirty / confirm 不出を検証する。スタブは throw。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-R2-002: `startLoad` 完了後に `loading` を期待し設計と矛盾
+- **観点 / レーン**: 実装詳細の過剰束縛（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load-flow.test.ts:112-122`；設計書 startLoad step 4〜8
+- **問題**: `await startLoad(...)` で関数全体の完了を待っているのに `loadStatus === 'loading'` を期待する。正しい実装では完了後は `'ready'`。
+- **影響**: Phase 8 で正しい `startLoad` がこのテストで FAIL する。
+- **推奨対応**: `getByDate` を未解決 Promise にし、await 前の同期フェーズを `StartLoadDeps` の注入（例: `onBeforeFetch(state)`）で観測する。完走ケースの期待は `'ready'`。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-R2-003: 設計書 export 外の `getFormControlsAccessibility` を戻り値固定
+- **観点 / レーン**: 実装詳細の過剰束縛（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load.ts`；`report-load-flow.test.ts:81-105`
+- **問題**: 設計書「純粋関数の配置」一覧に無いヘルパーの 3 値を `toEqual` で固定している。
+- **影響**: DOM で AC-L30 を満たす実装がヘルパー未 export なら FAIL する。
+- **推奨対応（司令塔）**: 設計書は「**少なくとも**次を export」であり追加は禁止されていない。実装計画 5.3.4 が「画面用ヘルパー」で AC-L30 を内部検証すると明記。本ヘルパーを削除すると B-004 が再発する。**ヘルパーは残す。** 5.3.4 に関数名を明記する。テストは 3 状態の振る舞い（date/retry/formLocked）を維持する。
+- **戻り先**: Phase 5（実装計画の明記＋ヘルパー維持。テスト削除はしない）
+
+### FIND-P6-B-R2-001: AC-L51 / AC-L56 の SPA confirm を `shouldPreventUnload` と混同
+- **観点 / レーン**: 受け入れ条件との対応（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L400；`report-load.test.ts`；`report-load-flow.test.ts`
+- **問題**: SPA confirm は `dirty && (ready || error)`。`shouldPreventUnload` は `(ready && dirty) || error` で error 非 dirty でも true。別契約なのに AC-L51 ラベルで `shouldPreventUnload` を使っている。
+- **影響**: error 非 dirty で SPA confirm が出る／ready+dirty で出ない実装を検出できない。
+- **推奨対応**: `shouldConfirmSpaLeave(dirty, loadStatus)` を追加し `it.each` で検証。`shouldPreventUnload` のラベルは AC-L54 のみ。
+- **戻り先**: Phase 5
+
+## Minor（1行のみ）
+
+- FIND-P6-A-R2-M01: `getFormControlsAccessibility('error')` 断言の重複
+- FIND-P6-A-R2-M02: `expectEmptyReport` リテラル二重管理（A-006 継続）
+- FIND-P6-A-R2-M03: AC-L55 で `shouldPreventUnload` にリテラル false
+- FIND-P6-B-R2-M01: `dateMissing` は文字列存在のみ
+- FIND-P6-B-R2-M02: AC-L55 手組み afterSave（A-R2-001 と同根）
+- FIND-P6-C-R2-M01: `onDateChange` の `action:'none'` 固定は confirm 断言を外すとトートロジー余地
+
+## レビュー観点ごとの判定
+
+| 観点 | レーン | 判定 | 裏付け |
+|---|---|---|---|
+| トートロジー検出 | A | FAIL | FIND-P6-A-R2-001 |
+| 実装詳細の過剰束縛 | A | FAIL | FIND-P6-A-R2-002 / R2-003 |
+| 受け入れ条件との対応 | B | FAIL | FIND-P6-B-R2-001。❌ はゼロ |
+| エッジケース・例外系の網羅 | B | FAIL | L51/L56 SPA |
+| 未決事項の温存 | B | PASS | TBD なし |
+| セキュリティ・品質観点 | C | PASS | MC-2/3 N/A 整合 |
+| Red Phase log の妥当性 | C | PASS | 89/234/323。スタブ throw |
+
+## 仕様決定要否
+
+不要。設計書は変更しない。
+
 
