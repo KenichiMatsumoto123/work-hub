@@ -113,7 +113,7 @@ export const timeEntries = pgTable(
     index('time_entries_date_idx').on(table.date),
     index('time_entries_task_idx').on(table.taskId),
     index('time_entries_task_date_idx').on(table.taskId, table.date),
-    check('chk_hours_positive', sql`${table.hours} > 0`),
+    check('chk_hours_non_negative', sql`${table.hours} >= 0`),
   ],
 )
 
