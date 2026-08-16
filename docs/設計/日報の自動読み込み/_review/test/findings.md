@@ -130,3 +130,55 @@
 | 実現可能性 | B | FAIL |
 | クリティカルパス選定 | C | FAIL |
 | 仮置きの妥当性 | C | FAIL |
+
+---
+
+# 観点表 敵対的レビュー結果（Round 2）
+
+- 対象: `docs/設計/日報の自動読み込み/_review/test/観点表.md`
+- レビュー日時: 2026-08-16 08:33
+- 方式: 差分レビュー。3レーン並列（網羅性／期待値・実現可能性／クリティカルパス選定・仮置き）
+- モデル: Composer 2.5
+- 総合判定: FAIL
+
+## サマリー
+
+| Severity | 件数 |
+| -------- | ---- |
+| Critical | 0    |
+| Major    | 1    |
+| Minor    | 2    |
+
+Round 1 の Major 12 件はすべて解消（F-VT-012 は投入経路が部分的 → 本 Round の Major として再掲）。
+
+## Findings
+
+### Critical
+
+なし
+
+### Major
+
+#### FIND-VT-B-R2-001: E2E の `saveReportFn` 投入経路が Playwright 既定環境で実現不能
+- **観点 / レーン**: 実現可能性（レーンB）
+- **該当箇所**: 観点表 1.0 規定 6、2.0 規定 6、E2E-L1/L7 Given（Round 2 時点）
+- **問題**: L1/L7 が `saveReport` ヘルパーまたは `saveReportFn` HTTP POST を要求するが、(1) `report-db-helpers` は DB 名 `workhub` で import 時 throw、(2) HTTP POST に JSON 本文を付けると seroval が 500 を返す（親 E2E-6 実測）、(3) 既存 E2E の投入実例は UI 保存のみ。
+- **影響**: Phase 10 で L1/L7 が書けないか、実装者ごとに投入コードが分岐する。
+- **推奨対応**: E2E 投入を親と同型の別 BrowserContext UI 保存に 1 系統凍結。`report-db-helpers` import と HTTP POST を禁止。
+- **仕様決定の要否**: 不要（テスト手順の凍結。プロダクト仕様ではない）
+
+### Minor（1行のみ）
+
+- F-VT-R2-M01: 実装計画 5.3.4 タスク行が AC-L30 を列挙していない（`実装計画.md` 126 行）。観点表は 5.3.4 へ委譲済み
+- FIND-VT-B-R2-M01: 1.0 の PJ/タスク名が `DailyReportData` のどのフィールドか未マッピング（観点表 1.0）
+
+## レビュー観点ごとの判定
+
+| 観点 | レーン | 判定 |
+| ---- | ---- | ---- |
+| 網羅性（1.5） | A | PASS |
+| 期待結果の曖昧さ | B | PASS |
+| 実現可能性 | B | FAIL |
+| クリティカルパス選定 | C | PASS |
+| 仮置きの妥当性 | C | PASS |
+
