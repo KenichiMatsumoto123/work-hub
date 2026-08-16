@@ -372,9 +372,8 @@ describe('名前の長さ超過メッセージ（AC-38・6-3）', () => {
       { label: '基幹刷新', name: title, actualHours: '' },
     ])
 
-    const message = await messageOf(() => save(data))
-    expect(message).not.toBe(
-      [長さ見出し, `タスク名: 「${title.slice(0, 30)}」（300文字）`].join('\n'),
+    expect(await messageOf(() => save(data))).toBe(
+      '検証エラーの経路で DB に触れました: transaction',
     )
   })
 
