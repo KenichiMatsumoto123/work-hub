@@ -49,8 +49,12 @@ describe('AC-L35 空日付保存の dateMissing 回帰', () => {
 })
 
 describe('AC-L53 入力タブ切替では confirm を使わない', () => {
-  it('index.tsx に window.confirm が無い（タブ切替含む画面内操作）', () => {
-    expect(source.includes('window.confirm')).toBe(false)
-    expect(source.includes('confirm(')).toBe(false)
+  const tabSectionStart = source.indexOf('{/* Tabs */}')
+  const tabSectionEnd = source.indexOf('{/* Content */}')
+  const tabSection = source.slice(tabSectionStart, tabSectionEnd)
+
+  it('タブ切替（入力/日報/PJ稼働/勤怠）の TabButton onClick に confirm が無い', () => {
+    expect(tabSection.includes('window.confirm')).toBe(false)
+    expect(tabSection.includes('confirm(')).toBe(false)
   })
 })

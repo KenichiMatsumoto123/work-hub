@@ -31,6 +31,7 @@ export type FormControlsAccessibility = {
 export type StartLoadDeps = {
   getByDate: (date: string) => Promise<DailyReportData | null>
   assignLocation?: (href: string) => void
+  onBeforeFetch?: (state: ReportLoadState) => void
 }
 
 export type DateChangeResult =
@@ -68,6 +69,19 @@ export function shouldPreventUnload(
   _loadStatus: LoadStatus,
 ): boolean {
   throw new Error('STUB: shouldPreventUnload')
+}
+
+/** AC-L51 / L56：SPA 内ヘッダー遷移 confirm（shouldPreventUnload とは別契約） */
+export function shouldConfirmSpaLeave(
+  _dirty: boolean,
+  _loadStatus: LoadStatus,
+): boolean {
+  throw new Error('STUB: shouldConfirmSpaLeave')
+}
+
+/** AC-L55：保存成功後に baseline を data に揃える */
+export function markReportSaved(_state: ReportLoadState): ReportLoadState {
+  throw new Error('STUB: markReportSaved')
 }
 
 export function isLoadableReport(_value: unknown): boolean {

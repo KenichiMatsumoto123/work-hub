@@ -13,6 +13,7 @@ import {
   LOAD_STATUS_ERROR,
   LOAD_STATUS_LOADING,
   LOGIN_ON_401_HREF,
+  shouldConfirmSpaLeave,
   shouldFetchReport,
   shouldPreventUnload,
 } from './report-load'
@@ -261,7 +262,7 @@ describe('AC-L50 / L51 確認ダイアログ定数', () => {
 })
 
 describe('AC-L54 shouldPreventUnload', () => {
-  it('AC-L51 ready かつ dirty なら true（ヘッダー遷移 confirm の前提）', () => {
+  it('ready かつ dirty なら true', () => {
     expect(shouldPreventUnload(true, 'ready')).toBe(true)
   })
 
@@ -277,6 +278,21 @@ describe('AC-L54 shouldPreventUnload', () => {
   it('ready かつ非 dirty は false', () => {
     expect(shouldPreventUnload(false, 'ready')).toBe(false)
   })
+})
+
+describe('AC-L51 / L56 shouldConfirmSpaLeave', () => {
+  it.each([
+    { loadStatus: 'ready' as const, dirty: true, expected: true },
+    { loadStatus: 'error' as const, dirty: true, expected: true },
+    { loadStatus: 'loading' as const, dirty: true, expected: false },
+    { loadStatus: 'ready' as const, dirty: false, expected: false },
+    { loadStatus: 'error' as const, dirty: false, expected: false },
+  ])(
+    'loadStatus=$loadStatus dirty=$dirty なら $expected',
+    ({ loadStatus, dirty, expected }) => {
+      expect(shouldConfirmSpaLeave(dirty, loadStatus)).toBe(expected)
+    },
+  )
 })
 
 describe('読み込みバナー定数', () => {

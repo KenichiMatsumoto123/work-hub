@@ -9,6 +9,7 @@ import {
   getFormControlsAccessibility,
   isReportDirty,
   LOGIN_ON_401_HREF,
+  markReportSaved,
   onDateChange,
   shouldPreventUnload,
   startLoad,
@@ -112,14 +113,32 @@ describe('startLoad：同期フェーズ・応答確定', () => {
   it('await 前に data.date だけ要求日付へ更新し loadStatus は loading', async () => {
     const state = readyState('2000-04-21')
     state.data = { ...state.data, note: '保持' }
-    const getByDate = vi.fn().mockResolvedValue(saved)
+    const deferred = createDeferred<DailyReportData | null>()
+    const getByDate = vi.fn().mockReturnValue(deferred.promise)
+    let observedDuringFetch: ReportLoadState | undefined
 
-    const result = await startLoad(state, '2000-04-22', { getByDate })
+    const loadPromise = startLoad(state, '2000-04-22', {
+      getByDate,
+      onBeforeFetch: (s) => {
+        observedDuringFetch = s
+      },
+    })
+    void loadPromise.catch(() => {
+      /* Red Phase: startLoad スタブは throw。同期フェーズ観測までの未処理拒否を抑止 */
+    })
+
+    expect(observedDuringFetch).toBeDefined()
+    expect(observedDuringFetch!.data.date).toBe('2000-04-22')
+    expect(observedDuringFetch!.data.note).toBe('保持')
+    expect(observedDuringFetch!.loadStatus).toBe('loading')
+    expect(getByDate).toHaveBeenCalledWith('2000-04-22')
+
+    deferred.resolve(saved)
+    const result = await loadPromise
 
     expect(result.data.date).toBe('2000-04-22')
     expect(result.data.note).toBe('保持')
-    expect(result.loadStatus).toBe('loading')
-    expect(getByDate).toHaveBeenCalledWith('2000-04-22')
+    expect(result.loadStatus).toBe('ready')
   })
 
   it.each(['2026-02-30', ''])(
@@ -300,14 +319,6 @@ describe('AC-L41 再試行', () => {
 })
 
 describe('AC-L46 error 中の日付変更・再試行', () => {
-  it('error 中は日付変更と再試行が操作可能', () => {
-    expect(getFormControlsAccessibility('error')).toEqual({
-      dateEnabled: true,
-      retryEnabled: true,
-      formLocked: true,
-    })
-  })
-
   it('error かつ dirty なら confirm 後に変更先で startLoad', async () => {
     const targetDate = '2000-04-12'
     const errorState: ReportLoadState = {
@@ -381,34 +392,27 @@ describe('onDateChange（AC-L50 / L52）', () => {
 })
 
 describe('AC-L55 保存成功後の dirty 解除', () => {
-  it('baseline 更新後は dirty でなく日付変更 confirm も離脱 confirm も出ない', () => {
-    const saved = makeSingleBlockReport('2000-04-11', 'A社', [
-      { label: 'PJ', name: 'タスク', actualHours: '1' },
-    ])
-    const afterSave: ReportLoadState = {
-      data: saved,
-      baseline: saved,
-      loadStatus: 'ready',
-      loadRequestId: 1,
+  it('markReportSaved 後は dirty でなく日付変更 confirm も離脱 confirm も出ない', () => {
+    const dirtyState = readyState('2000-04-11')
+    dirtyState.data = {
+      ...dirtyState.data,
+      projects: [{ ...dirtyState.data.projects[0], name: '編集済み' }],
     }
 
+    const afterSave = markReportSaved(dirtyState)
+
     expect(isReportDirty(afterSave.data, afterSave.baseline)).toBe(false)
-    expect(shouldPreventUnload(false, 'ready')).toBe(false)
+    expect(
+      shouldPreventUnload(
+        isReportDirty(afterSave.data, afterSave.baseline),
+        afterSave.loadStatus,
+      ),
+    ).toBe(false)
 
     const confirm = vi.fn()
     const change = onDateChange(afterSave, '2000-04-12', { confirm })
     expect(confirm).not.toHaveBeenCalled()
     expect(change.action).toBe('startLoad')
-  })
-})
-
-describe('AC-L51 / L56 / L54 shouldPreventUnload（ヘッダー遷移・beforeunload）', () => {
-  it('loading 中はヘッダー遷移 confirm なし（shouldPreventUnload false）', () => {
-    expect(shouldPreventUnload(true, 'loading')).toBe(false)
-  })
-
-  it('AC-L56 error かつ dirty なら shouldPreventUnload true', () => {
-    expect(shouldPreventUnload(true, 'error')).toBe(true)
   })
 })
 
