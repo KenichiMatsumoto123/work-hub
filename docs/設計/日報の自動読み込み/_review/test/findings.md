@@ -270,4 +270,268 @@ FIND-VT-B-R2-001 は解消。新規は後始末範囲とウォームアップ手
 | クリティカルパス選定 | C | PASS |
 | 仮置きの妥当性 | C | PASS |
 
+---
+
+# テスト 敵対的レビュー結果（Phase 6 Round 1）
+
+- **対象**: `apps/web/src/lib/report-load.test.ts` / `report-load-flow.test.ts` / `defaults.test.ts` / `time-utils.test.ts`（追記） / `storage.test.ts` / `routes/index.report-load.test.ts` / `server/functions/reports.test.ts`（追記） / `reports-get-by-date.integration.test.ts`。スタブ: `report-load.ts` / `storage.ts#getByDate` / `defaults.ts` / `time-utils.ts#getToday` / `reports.ts#getReportByDateFn`
+- **レビュー日時**: 2026-08-16
+- **方式**: 敵対的較正・3レーン並列（A: 欺瞞性 / B: 仕様対応 / C: セキュリティと証拠）。Adversary は fresh context・Read 専用。findings は司令塔が disk に保存
+- **Phase 7（人間レビュー）**: スキップ
+- **総合判定**: FAIL
+
+## サマリー
+
+| Severity | 件数 |
+|---|---|
+| Critical | 2 |
+| Major    | 14 |
+| Minor    | 13 |
+
+### Critical / Major findings 見出し一覧
+
+- **FIND-P6-B-001**: クリティカルパス AC-L33 が Phase 5 テストに存在しない
+- **FIND-P6-B-002**: クリティカルパス AC-L34 の日付切替シナリオが結合内部に無い
+- **FIND-P6-A-001**: AC-L04 が Green 後に自己参照トートロジーになる
+- **FIND-P6-A-002**: エイリアス同値比較テストが Green 後に恒常 PASS し、欠陥検出力がない
+- **FIND-P6-A-003**: 設計書に無い `startLoad` 分割 API をテストが必須化している
+- **FIND-P6-A-004**: `FORM_CONTROLS` 識別子集合の列挙が AC-L30 を内部実装に固定している
+- **FIND-P6-A-005**: 設計書「少なくとも export」一覧に無いヘルパー群をテストが固定している
+- **FIND-P6-B-003**: AC-L41「再試行」がテスト未コード
+- **FIND-P6-B-004**: AC-L42 の error 中 disabled 検証が不完全
+- **FIND-P6-B-005**: AC-L46 の error 中操作可能範囲・日付変更が未検証
+- **FIND-P6-B-006**: AC-L55（保存成功後 dirty 解除）のテスト無し
+- **FIND-P6-B-007**: AC-L51 / AC-L56 の `ready`+dirty ヘッダー遷移 confirm が結合内部で未検証
+- **FIND-P6-B-008**: AC-L50 の confirm OK 経路が未検証
+- **FIND-P6-B-009**: AC-L35 の空日付保存（`dateMissing`）が未検証
+- **FIND-P6-C-001**: スタブ `report-load.ts` に Phase 8 相当の実ロジックが混入
+- **FIND-P6-C-002**: Red Phase 証拠が「スタブ最小実装」を過剰断言
+
+## 設計書 受け入れ条件 × テスト 対応マトリクス
+
+凡例：✅ 対応テストあり / ⚠️ 部分的・不十分 / ❌ 未対応 / N/A 本テストの責務外
+
+| 設計書 受け入れ条件 | 該当行 | 対応テスト | 状況 |
+|---|---|---|---|
+| AC-L01 | 設計書 L85 | `time-utils.test.ts` L70-71 | ✅ |
+| AC-L02 | L86 | `time-utils.test.ts` L74-77 | ✅ |
+| AC-L03 | L87 | `time-utils.test.ts` L80-83 | ✅ |
+| AC-L04 | L88 | `defaults.test.ts` L24-33 | ✅（Green 後トートロジー化は FIND-P6-A-001） |
+| AC-L05 | L89 | `time-utils.test.ts` L87-100 | ✅ |
+| AC-L10 | L95 | `reports-get-by-date.integration.test.ts` L59-90 | ⚠️（観点表 1.1 の日付・`ITL-ACL10-`・cleanup は一致。`rowToReport` との同値比較は未実施） |
+| AC-L11 | L96 | `reports-get-by-date.integration.test.ts` L93-100 | ✅ |
+| AC-L12 | L97 | `reports.test.ts` L217-223；`report-load-flow.test.ts` L101-108 | ⚠️（サーバ経路は `null` のみ。DB 非接触の呼び出し回数断言なし） |
+| AC-L13 | L98 | `reports.test.ts` L162-168 | ✅ |
+| AC-L14 | L99 | `storage.test.ts` L23-38 | ✅ |
+| AC-L15 | L100 | `report-load.test.ts` L56-67 | ✅ |
+| AC-L20 | L108 | `report-load.test.ts` L71-83, L143-156 | ✅ |
+| AC-L21 | L109 | `report-load.test.ts` L86-99, L124-127 | ✅ |
+| AC-L22 | L110 | `report-load.test.ts` L101-122 | ✅ |
+| AC-L23 | L111 | `report-load.test.ts` L130-133 | ✅ |
+| AC-L24 | L112 | `report-load.test.ts` L135-141 | ⚠️（`isReportDirty(saved,saved)` のみ。保存成功後の `baseline` 更新経路は未検証） |
+| AC-L30 | L118 | `report-load-flow.test.ts` L66-77 | ⚠️（計画 5.3.4 どおり純粋集合。DOM は Phase 10） |
+| AC-L31 | L119 | `report-load-flow.test.ts` L262-276 | ⚠️（`runStartLoad` 代用。画面観測は E2E-L7＝Phase 10） |
+| AC-L32 | L120 | — | N/A（E2E-L8＝Phase 10） |
+| AC-L33 | L121 | — | ❌ |
+| AC-L34 | L122 | `report-load-flow.test.ts` L170-179 | ❌（日付切替オーケストレーション無し） |
+| AC-L35 | L123 | `report-load-flow.test.ts` L101-108；`report-load.test.ts` L212-216 | ⚠️（空日付 `''` の startLoad 無し。`dateMissing` 未検証） |
+| AC-L36 | L124 | `report-load.test.ts` L269-271 | ⚠️（文言 ✅。testid の DOM/ソース断言なし） |
+| AC-L37 | L125 | `report-load-flow.test.ts` L74-77 | ⚠️（ready で disabled 空のみ。バナー非表示は Phase 10） |
+| AC-L40 | L131 | `report-load-flow.test.ts` L153-168, L194-205 | ⚠️（失敗遷移・内容維持はある。バナー testid は定数のみ） |
+| AC-L41 | L132 | — | ❌ |
+| AC-L42 | L133 | `report-load-flow.test.ts` L80-86 | ❌ |
+| AC-L43 | L134 | `report-load-flow.test.ts` L138-151 | ✅ |
+| AC-L44 | L135 | `report-load.test.ts` L166-201 | ✅ |
+| AC-L45 | L136 | `report-load.test.ts` L219-233；`report-load-flow.test.ts` L194-205 | ✅ |
+| AC-L46 | L137 | `report-load-flow.test.ts` L80-86 | ❌ |
+| AC-L50 | L143 | `report-load-flow.test.ts` L208-219；`report-load.test.ts` L237-240 | ⚠️（キャンセルのみ。OK 経路未検証。dialog は E2E-L5＝Phase 10） |
+| AC-L51 | L144 | `report-load-flow.test.ts` L233-244；`report-load.test.ts` L243-246 | ⚠️（`ready`+dirty のヘッダー遷移未検証。dialog は E2E-L6＝Phase 10） |
+| AC-L52 | L145 | `report-load-flow.test.ts` L221-230, L234-236 | ✅ |
+| AC-L53 | L146 | `report-load-flow.test.ts` L246-248 | ✅ |
+| AC-L54 | L147 | `report-load.test.ts` L250-266 | ✅ |
+| AC-L55 | L148 | — | ❌ |
+| AC-L56 | L149 | `report-load-flow.test.ts` L238-244 | ⚠️（`ready`+dirty の SPA confirm 未検証） |
+| AC-L60 | L156 | `index.report-load.test.ts` L17-32 | ✅ |
+| AC-L61 | L157 | — | N/A（E2E-L4・親 E2E＝Phase 10） |
+| AC-L62 | L158 | `index.report-load.test.ts` L35-42；既存 `saved-msg.test.ts` | ✅ |
+| AC-L63 | L150 | — | N/A（親 E2E＝Phase 10） |
+
+未定義番号（AC-L06〜L09 / L16〜L19 / L25〜L29 / L38〜L39 / L47〜L49 / L57〜L59）は設計書に AC が無いため N/A。
+
+## Findings（Critical / Major）
+
+### FIND-P6-B-001: クリティカルパス AC-L33 が Phase 5 テストに存在しない
+- **観点 / レーン**: 受け入れ条件との対応（レーンB）
+- **重大度**: Critical
+- **ファイル**: 設計書 L121（AC-L33）；実装計画 5.3.4；`apps/web/src/lib/report-load-flow.test.ts` 全体
+- **問題**: 日付を保存済み日 `D` に切り替え、完了後 `isReportDirty(画面, applyLoadSuccess(D, 取得結果)) === false` となるクリティカルパスが、結合内部テストに無い。`finalizeStartLoad` の汎用成功・`handleDateChange` のキャンセルのみで、日付切替成功シナリオは未コード化。
+- **影響**: Phase 7 スキップのため、Phase 8 で日付切替後に dirty が残る・baseline 不整合・`raw_data.date` 上書き漏れが単体/結合内部では検出されない。E2E-L1 は観点表凍結済みだが Playwright 未作成（Phase 10）。
+- **推奨対応**: 非 dirty の日付変更 → 読み込み成功（保存済み mock）後に `isReportDirty === false`・`data.date === D` を検証するケースを追加する。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-002: クリティカルパス AC-L34 の日付切替シナリオが結合内部に無い
+- **観点 / レーン**: 受け入れ条件との対応（レーンB）
+- **重大度**: Critical
+- **ファイル**: 設計書 L122（AC-L34）；`apps/web/src/lib/report-load-flow.test.ts`（null 成功は `finalizeStartLoad` 直叩きのみ）
+- **問題**: 行なし日付への切替後「空初期値・日付欄 `D`」を、日付変更オーケストレーション経路で検証していない。
+- **影響**: L33 と同様、Phase 8 前にクリティカルパス回帰を機械的に止められない。
+- **推奨対応**: 日付変更 → null 応答で空初期値・`data.date === D`・`loadStatus === 'ready'` を検証する。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-001: AC-L04 が Green 後に自己参照トートロジーになる
+- **観点 / レーン**: トートロジー検出（MC-1）（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/defaults.test.ts:24-26`
+- **問題**: `getToday` を `vi.fn(() => '2026-08-17')` でモックしたうえで `expect(defaultDailyReport().date).toBe(getToday())` としている。Phase 8 で `defaultDailyReport` が `date ?? getToday()` になると、期待値・実装値の両方が同一モック `getToday()` を呼ぶだけになり、実装が壊れても検出できない。
+- **影響**: Green 後は欠陥をすり抜け、日付初期値の誤実装が Phase 10 まで残る。
+- **推奨対応**: モック固定値を右辺に直書きする（`expect(defaultDailyReport().date).toBe('2026-08-17')`）。右辺で `getToday()` を呼ばない。併せて引数指定時はモックに依存しないケースを追加する。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-002: エイリアス同値比較テストが Green 後に恒常 PASS し、欠陥検出力がない
+- **観点 / レーン**: トートロジー検出（MC-1）（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load.test.ts:205-233`
+- **問題**: `shouldFetchReport(date)` を `isValidReportDate(date)` と、`isLoadableReport(value)` を `isValidReportStructure(value)` とそれぞれ `toBe` で比較している。正しいエイリアス実装なら常に PASS する。Red ではスタブ throw で FAIL するが、Green 後は欠陥検出力が実質ゼロ。
+- **影響**: AC-L12 / L35 / L45 の単体担当テストとしては、定数一致テストと同等の浅さ。
+- **推奨対応**: 同値比較を削除し、入出力ベースの代表ケースのみ残す（不正日付で false・正常構造で true・null で false 等、固定値 assert）。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-003: 設計書に無い `startLoad` 分割 API をテストが必須化している
+- **観点 / レーン**: 実装詳細の過剰束縛（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load-flow.test.ts`；スタブ `apps/web/src/lib/report-load.ts`（`beginStartLoad` / `finalizeStartLoad` / `runStartLoad`）
+- **問題**: 設計書は読み込み手順を `startLoad(date)` の 8 ステップで記述するのみ。`beginStartLoad` / `finalizeStartLoad` / `runStartLoad` という関数名・責務分割は設計書に無い。テストは戻りの `effects` 形状まで固定している。
+- **影響**: Phase 8 で単一の `startLoad` にまとめる正当なリファクタがテストにより禁止される。
+- **推奨対応**: 公開 API を設計書の `startLoad`（state + deps）に寄せ、日付先行更新・stale 無視・401・null 成功・構造不正を入出力で検証する。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-004: `FORM_CONTROLS` 識別子集合の列挙が AC-L30 を内部実装に固定している
+- **観点 / レーン**: 実装詳細の過剰束縛（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load-flow.test.ts`；`apps/web/src/lib/report-load.ts` の `FORM_CONTROLS`
+- **問題**: AC-L30 はユーザーが操作できない UI 要素を列挙するが、`'tabReport'` 等の内部識別子や `FORM_CONTROLS` 定数は設計書に無い。テストは全要素の disabled を要求し、配列の追加・改名で FAIL する。
+- **影響**: DOM の disabled 付与方法を変えても AC-L30 を満たす実装が、テストにより拒否される。
+- **推奨対応**: AC-L30 / L42 / L46 の操作可否を振る舞い（loading 中は日付欄含むフォーム操作不可、error 中は日付と再試行のみ可、ready は操作可）で断言する。内部識別子の完全列挙はテストに書かない。
+- **戻り先**: Phase 5
+
+### FIND-P6-A-005: 設計書「少なくとも export」一覧に無いヘルパー群をテストが固定している
+- **観点 / レーン**: 実装詳細の過剰束縛（レーンA）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load-flow.test.ts`；`apps/web/src/lib/report-load.ts`（`getDisabledControls` / `handleDateChange` / `shouldConfirm*` 等）
+- **問題**: 設計書「純粋関数の配置」の export 一覧にこれらのヘルパーは含まれない。テストは関数シグネチャと戻り値を直接 assert している。
+- **影響**: `index.tsx` が設計書どおりインライン分岐で AC を満たしても、ヘルパー未 export ならテストが FAIL する。
+- **推奨対応**: テストを `startLoad` / 日付変更の入出力シナリオに集約する。confirm 系は設計書にある `shouldPreventUnload` と定数、および日付変更・離脱の入出力で検証する。設計書へ API 追記はしない（承認済み成果物の変更は人間判断のため）。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-003: AC-L41「再試行」がテスト未コード
+- **観点 / レーン**: 受け入れ条件との対応（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L132；実装計画 5.3.4；`report-load-flow.test.ts`（該当 describe 無し）
+- **問題**: 失敗バナー上の再試行が `startLoad(data.date)` を再度呼ぶ契約に対し、retry ハンドラ・`error`→`loading`→成功のシーケンステストが無い。
+- **影響**: 再試行が古い日付で呼ばれる欠陥を Phase 8 で見逃す。
+- **推奨対応**: `error` 状態から再試行が `data.date` で読み込みを再開し、成功時に L33/L34 同等になるケースを追加する。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-004: AC-L42 の error 中 disabled 検証が不完全
+- **観点 / レーン**: 受け入れ条件との対応／エッジケース（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L133；`report-load-flow.test.ts`（`getErrorEnabledControls` が date / saveReport / projectInput のみ）
+- **問題**: AC-L42 が要求する所感・タブ 3 種・出力リンク・取引先追加の disabled が未断言。
+- **影響**: error 中にタブ切替・上書き保存が可能になる実装バグをテストが通す。
+- **推奨対応**: FIND-P6-A-004 と両立する形で、error 時は日付と再試行以外が操作不可であることを振る舞い断言する（内部識別子の完全列挙はしない）。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-005: AC-L46 の error 中操作可能範囲・日付変更が未検証
+- **観点 / レーン**: 受け入れ条件との対応／エッジケース（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L137；`report-load-flow.test.ts`（handleDateChange は ready 前提）
+- **問題**: 「再試行」操作可能のテスト無し。`loadStatus === 'error'` 時の日付変更（dirty confirm 含む）が未テスト。
+- **影響**: error 恒常失敗から日付で逃げられない・retry が disabled のまま等の欠陥を検出できない。
+- **推奨対応**: error 状態で日付変更→読み込み再開、再試行が `data.date` を読むケースを追加する。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-006: AC-L55（保存成功後 dirty 解除）のテスト無し
+- **観点 / レーン**: 受け入れ条件との対応（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L148；実装計画 5.3.4（L50〜L56）
+- **問題**: 保存成功で `baseline = data`・その後 confirm 不出、という状態遷移がどのテストにも無い。AC-L24 は `isReportDirty` 同値のみで保存ハンドラを経ていない。
+- **影響**: 保存後も dirty 残存→不要 confirm、または baseline 未更新→誤 dirty の実装が Green 化する。
+- **推奨対応**: 保存成功後に baseline を保存内容へ揃え、日付変更・離脱の confirm が出ないことを入出力で検証する（`saved-msg.test.ts` は触らない）。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-007: AC-L51 / AC-L56 の `ready`+dirty ヘッダー遷移 confirm が結合内部で未検証
+- **観点 / レーン**: 受け入れ条件との対応（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L144, L149；`report-load-flow.test.ts`
+- **問題**: `shouldConfirmLeavePage(true, 'error')` はあるが、`shouldConfirmLeavePage(true, 'ready')` が無い。設計書・Q13 では `ready` かつ dirty でも AC-L51 を適用。
+- **影響**: `ready`+dirty でヘッダー遷移 confirm が出ない実装がテストを通す（E2E-L6 は Phase 10 未コード）。
+- **推奨対応**: ready かつ dirty なら離脱 confirm する／loading ならしない、を `shouldPreventUnload` と対になる入出力（または日付変更と同じ confirm 注入）で検証する。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-008: AC-L50 の confirm OK 経路が未検証
+- **観点 / レーン**: 受け入れ条件との対応／エッジケース（レーンB）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load-flow.test.ts`（confirm → false のみ）
+- **問題**: dirty かつ `confirm`→true のとき `startLoad` に進む設計書 step がテストされていない。
+- **影響**: OK 後に状態が変わらない・API 未呼び出し等の欠陥を見逃す。
+- **推奨対応**: confirm true なら変更先日付で読み込みを開始することを検証する。
+- **戻り先**: Phase 5
+
+### FIND-P6-B-009: AC-L35 の空日付保存（`dateMissing`）が未検証
+- **観点 / レーン**: エッジケース・例外系（レーンB）
+- **重大度**: Major
+- **ファイル**: 設計書 L123；`report-load-flow.test.ts`（`2026-02-30` のみ。`''` 無し）
+- **問題**: 不正日付で API 非呼び出し・日付欄 `''` は部分的にあるが、空日付で保存→`savedMsg` の `dateMissing`（現行回帰）への結び付けテストが無い。
+- **影響**: 空フォーム上書き保存やメッセージ回帰を本機能変更で壊しても検出不能。
+- **推奨対応**: invalid/`''` 到達後も保存時に `dateMissing` を送る契約を、`index.tsx` のソース断言（既存 `dateMissing` 文字列）または `savedMsgReducer` を触らない形の結合内部で追加する。`saved-msg.test.ts` は変更しない。
+- **戻り先**: Phase 5
+
+### FIND-P6-C-001: スタブ `report-load.ts` に Phase 8 相当の実ロジックが混入
+- **観点 / レーン**: Red Phase log の妥当性（MC-5）（レーンC）
+- **重大度**: Major
+- **ファイル**: `apps/web/src/lib/report-load.ts`（`emptyReport` / `applyLoadSuccess`）
+- **問題**: `emptyReport` は `defaultDailyReport()` を呼び出して合成し、`applyLoadSuccess` は `report === null` 分岐で `emptyReport(date)` を返す。スタブ最小実装（シグネチャ＋固定ダミー返却のみ・実ロジック禁止）に反する。
+- **影響**: `__STUB_*` 除去だけで一部テストが早期 Green になり、本番ロジックのレビュー密度が下がる。
+- **推奨対応**: Red Phase 中は `emptyReport` / `applyLoadSuccess` を throw または AC と一致しない固定センチネルのみにする。`defaultDailyReport()` 呼び出しと null 分岐を除去する。
+- **戻り先**: Phase 5
+
+### FIND-P6-C-002: Red Phase 証拠が「スタブ最小実装」を過剰断言
+- **観点 / レーン**: Red Phase log の妥当性（MC-5）（レーンC）
+- **重大度**: Major
+- **ファイル**: `docs/設計/日報の自動読み込み/_review/test/red-phase-evidence.md`；対照 `apps/web/src/lib/report-load.ts`
+- **問題**: 証拠は変更内容を「スタブ最小実装」と記録しているが、FIND-P6-C-001 のとおり分岐・合成ロジックが存在する。件数は一致するが、実装物の性質に関する記述が実態と食い違う。
+- **影響**: MC-5 の証拠妥当性要件を満たさない。
+- **推奨対応**: C-001 修正後に司令塔が `npm run test` を再実行し、証拠を実態に合わせて更新する。
+- **戻り先**: Phase 5（証拠は司令塔が更新）
+
+## Minor（1行のみ）
+
+- FIND-P6-A-006: `expectEmptyReport` が `defaultDailyReport(date)` ではなくリテラル固定値を assert し二重管理（`report-load.test.ts` / `report-load-flow.test.ts`）
+- FIND-P6-A-007: 401 テストが `LOGIN_ON_401_HREF` 定数を使わず文字列直書き（`report-load-flow.test.ts`）
+- FIND-P6-A-008: `LEAVE_PAGE_CONFIRM` 定数テストが `report-load.test.ts` と `report-load-flow.test.ts` で重複
+- FIND-P6-A-009: `handleDateChange` の dirty+cancel で `action === 'none'` がスタブ既定と一致し、confirm 断言が通った後の単独検出力が弱い
+- FIND-P6-A-010: `getErrorEnabledControls` が AC-L46 の「再試行」操作可能を検証していない
+- FIND-P6-B-M01: AC-L10 が `rowToReport` 関数と同値比較せずハードコード期待のみ（`reports-get-by-date.integration.test.ts`）
+- FIND-P6-B-M02: AC-L12 サーバ経路で DB モック呼び出し回数 0 の断言なし（`reports.test.ts`）
+- FIND-P6-B-M03: `beginStartLoad` の空文字 `''` 日付ケース未追加
+- FIND-P6-B-M04: `tasks` 配列長差の dirty 未テスト（`report-load.test.ts` は `projects` 長のみ）
+- FIND-P6-B-M05: `reports-get-by-date.integration.test.ts` で `makeSingleBlockReport` import 未使用
+- FIND-P6-C-003: `reports.test.ts` の describe が親機能ラベル「6-2 requireSession」で AC-L13 トレーサビリティが弱い
+
+## レビュー観点ごとの判定
+
+| 観点 | レーン | 判定 | 裏付け |
+|---|---|---|---|
+| トートロジー検出 | A | FAIL | FIND-P6-A-001 / A-002 |
+| 実装詳細の過剰束縛 | A | FAIL | FIND-P6-A-003 / A-004 / A-005 |
+| 受け入れ条件との対応 | B | FAIL | マトリクス ❌ 7（L33/L34/L41/L42/L46/L55） |
+| エッジケース・例外系の網羅 | B | FAIL | FIND-P6-B-004 / B-005 / B-008 / B-009 |
+| 未決事項の温存（MC-4） | B | PASS | TBD・仮置き期待値なし |
+| セキュリティ・品質観点 | C | PASS | AC-L13 / L44。PII・認可 2 層は設計非該当で N/A 整合 |
+| Red Phase log の妥当性 | C | FAIL | FIND-P6-C-001 / C-002。件数 83/232/315 は一致 |
+
+## 仕様決定要否
+
+不要。承認済み設計書の変更は行わない。A-003/A-005 はテストを設計書の `startLoad` / 公開関数一覧に寄せて解消する。
+
 
