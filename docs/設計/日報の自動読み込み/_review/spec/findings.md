@@ -293,3 +293,72 @@ Round 1 Major 17 件のうち、ユーザー確定（Q1〜Q12）反映後は大�
 | MC-4（未決の温存） | A | PASS | 未決事項表は決定済みのみ。仮置きなし |
 
 Round 2 後、司令塔が Major 5 件と Minor のうち文書で即直せる 3 件（F2-018, F2-019, F2-020）を設計書へ反映した（Round 3 で解消確認する）。F2-C-001 はユーザーがおすすめ（案 a: error かつ dirty なら AC-L51）を承認。Q13 として記録。
+
+---
+
+# 設計書 敵対的レビュー結果（Round 3）
+
+- 対象: `docs/設計/日報の自動読み込み/日報の自動読み込み_設計書.md`
+- レビュー日時: 2026-08-16 07:55
+- 方式: 差分レビュー・3レーン並列（A: 仕様の確からしさ / B: 網羅とスコープ / C: 異常系）
+- モデル: Composer 2.5
+- 総合判定: FAIL
+
+## サマリー
+
+| Severity | 件数 |
+| -------- | ---- |
+| Critical | 0    |
+| Major    | 1    |
+| Minor    | 3    |
+
+Round 2 Major 5 件はすべて解消。新規 Major は F-A3-001 の 1 件。F-B3-001 と F-C3-001 は同一の文言ずれのため 1 件に統合。
+
+## Round 2 findings の解消確認
+
+| FIND-ID | 判定 | 根拠 |
+|---|---|---|
+| F-A2-001 | 解消 | 日付変更が step 1 同一日 return / step 2 confirm キャンセル return / step 3 dirty=false または confirm OK / step 4 `startLoad`。アクション定義 No.2 も 1〜4 |
+| F-A2-002 | 解消 | `isValidReportStructure` / `isLoadableReport` 節に合格・不合格例とエイリアス。既存 `report-normalize.ts` と条件一致 |
+| F-A2-003 | 解消 | 判定結果・検証の範囲が E2E-L1〜L7。クリティカルパス表に L7 |
+| F-A2-004 | 解消 | AC-L63 と親 E2E 節が `report-load-status` 不在＝ready のみ |
+| F2-C-001 | 解消 | Q13・AC-L56・例外系・SPA 遷移が「loading 中のみ禁止、error かつ dirty は AC-L51」 |
+| F2-018 | 解消 | フロー図が `applyLoadSuccess` |
+| F2-019 | 解消 | 検証の範囲の単体リストに `isLoadableReport` |
+| F2-020 | 解消 | Phase 5 で E2E候補カタログへ追記すると明記 |
+
+## Findings
+
+### Critical
+
+なし
+
+### Major
+
+#### F-A3-001: 日付変更→`startLoad` で `data.date` 先行更新が手順に組み込まれていない
+- **観点 / レーン**: 仕様の曖昧性 / 受け入れ条件の検証可能性（レーンA）
+- **該当箇所**: 業務フロー「正常系：日付変更」、`startLoad` 手順、日付変更手順、アクション定義 No.2 / No.3、AC-L41
+- **問題**: フロー図は「loading。日付欄は nextDate」、注記は「loading 開始時に `data = { ...data, date: nextDate }` としてよい」と要求するが、日付変更 step 4 は `startLoad(nextDate)` のみ、`startLoad` 番号手順には `data.date` 更新が無い。step 2 は confirm キャンセル時に `data` を更新しないため controlled 入力では onChange 時点で日付を書き換えられない。手順のみ実装すると loading 中・失敗後も `data.date` が旧日付のまま残る。
+- **影響**: 日付変更後の読み込み失敗で日付欄が旧日付表示のままになる。再試行は `startLoad(data.date)` のため、ユーザーが選んだ `nextDate` ではなく旧日付で API を再呼び出し、AC-L41「同じ日付でもう一度」の検証が手順根拠だけでは一意に決まらない。複数実装（注記を読む／読まない）が成立する。
+- **推奨対応**: 日付変更 step 4 を「`data = { ...data, date: nextDate }` のうえ `startLoad(nextDate)`」と明記するか、`startLoad` 手順に「`data = { ...data, date }`」を追加する。アクション定義 No.2・No.3 も同じ契約に揃える。
+- **仕様決定の要否**: 不要
+
+### Minor（1行のみ）
+
+- F-A3-002: 基本情報の最終更新が「Phase 2 Round 2」のまま（基本情報）
+- F-B3-001: E2E-L5/L6 および親 E2E 節の待ちが「読み込み完了」で、AC-L63 の「成功完了」＋バナー不在と文言不一致（クリティカルパス E2E 表・親 E2E への影響）／元 F-C3-001
+- F-C3-002: error かつ dirty の SPA confirm（AC-L56）に対応する E2E／候補表エントリが無い（クリティカルパス E2E 表・E2E 候補カタログ）
+
+## レビュー観点ごとの判定
+
+| 観点 | レーン | 判定 | 裏付け |
+| ---- | ---- | ---- | ---- |
+| 仕様の曖昧性 | A | FAIL | `startLoad` 番号手順に日付先行更新が無い |
+| 受け入れ条件の検証可能性 | A | FAIL | AC-L41 の「同じ日付」が失敗後の `data.date` と一意に結びつかない |
+| 要件の網羅性 | B | PASS | UC#1〜4・種1〜15 を AC と E2E-L1〜L7 に突合。抜けなし |
+| 非ゴールの明確性 | B | PASS | 要件メモのスコープ外は対象外節に包含 |
+| 設計書フォーマット準拠 | B | PASS | 必須項目欠落なし |
+| エッジケース | C | PASS | F2-C-001 修正後、loading / error × dirty × SPA / beforeunload / 日付変更が一致 |
+| MC-4（未決の温存） | A | PASS | 未決事項表は決定済みのみ。Q5 の Phase 5 委譲は意図明示済み |
+
+Round 3 後、司令塔が F-A3-001 を `startLoad` step 4 の必須手順として固定し、Minor 3 件も設計書へ反映した（Round 4 で解消確認する）。
