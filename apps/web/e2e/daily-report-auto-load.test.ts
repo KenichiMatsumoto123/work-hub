@@ -294,12 +294,12 @@ test.describe('E2E-L5 日付変更 confirm をキャンセルする', () => {
     await fillDateAndWaitLoad(page, fromDate)
     await clientNameInput(page).first().fill('x')
 
-    const [dialog] = await Promise.all([
-      page.waitForEvent('dialog'),
-      dateInput(page).fill(toDate),
-    ])
+    const dialogPromise = page.waitForEvent('dialog')
+    const fillPromise = dateInput(page).fill(toDate)
+    const dialog = await dialogPromise
     expect(dialog.message()).toBe(DATE_CHANGE_CONFIRM)
     await dialog.dismiss()
+    await fillPromise
 
     await expect(dateInput(page)).toHaveValue(fromDate)
     await expect(clientNameInput(page).first()).toHaveValue('x')
@@ -320,12 +320,12 @@ test.describe('E2E-L6 工数管理への未保存 confirm をキャンセルす�
     await fillDateAndWaitLoad(page, date)
     await clientNameInput(page).first().fill('x')
 
-    const [dialog] = await Promise.all([
-      page.waitForEvent('dialog'),
-      page.getByRole('link', { name: '工数管理' }).click(),
-    ])
+    const dialogPromise = page.waitForEvent('dialog')
+    const clickPromise = page.getByRole('link', { name: '工数管理' }).click()
+    const dialog = await dialogPromise
     expect(dialog.message()).toBe(LEAVE_PAGE_CONFIRM)
     await dialog.dismiss()
+    await clickPromise
 
     await expect(page).toHaveURL(/\/$/)
     await expect(dateInput(page)).toHaveValue(date)
@@ -347,12 +347,12 @@ test.describe('E2E-L6b 勤怠管理への未保存 confirm をキャンセルす
     await fillDateAndWaitLoad(page, date)
     await clientNameInput(page).first().fill('x')
 
-    const [dialog] = await Promise.all([
-      page.waitForEvent('dialog'),
-      page.getByRole('link', { name: '勤怠管理' }).click(),
-    ])
+    const dialogPromise = page.waitForEvent('dialog')
+    const clickPromise = page.getByRole('link', { name: '勤怠管理' }).click()
+    const dialog = await dialogPromise
     expect(dialog.message()).toBe(LEAVE_PAGE_CONFIRM)
     await dialog.dismiss()
+    await clickPromise
 
     await expect(page).toHaveURL(/\/$/)
     await expect(dateInput(page)).toHaveValue(date)
