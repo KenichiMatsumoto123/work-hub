@@ -149,7 +149,7 @@ function hasRequireSessionMiddleware(slice: string): boolean {
   )
 }
 
-describe('6-2 requireSession の静的検証', () => {
+describe('6-2 requireSession の静的検証（AC-L13）', () => {
   const source = stripComments(
     readFileSync(fileURLToPath(new URL('./reports.ts', import.meta.url)), 'utf-8'),
   )
@@ -221,6 +221,15 @@ describe('getReportByDateFn invalid date（AC-L12）', () => {
       await expect(getReportByDateFn({ data: { date } })).resolves.toBeNull()
     },
   )
+
+  it('不正日付では DB select が呼ばれない', async () => {
+    const { db } = await import('../db')
+    const selectSpy = vi.spyOn(db, 'select')
+
+    await getReportByDateFn({ data: { date: '2026-02-30' } })
+
+    expect(selectSpy).not.toHaveBeenCalled()
+  })
 })
 
 // ---------------------------------------------------------------------------

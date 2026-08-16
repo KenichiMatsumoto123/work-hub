@@ -3,7 +3,6 @@
  * Phase 5 Red Phase：シグネチャ＋スタブ最小実装（実ロジック禁止）
  */
 import type { DailyReportData } from './types'
-import { defaultDailyReport } from './defaults'
 
 export const DATE_CHANGE_CONFIRM =
   '入力内容が保存されていません。日付を切り替えますか？'
@@ -15,24 +14,6 @@ export const LOGIN_ON_401_HREF = '/login?redirect=/'
 
 export type LoadStatus = 'loading' | 'ready' | 'error'
 
-/** AC-L30 で disabled にするコントロール識別子 */
-export const FORM_CONTROLS = [
-  'date',
-  'startTime',
-  'endTime',
-  'breakTime',
-  'projectInput',
-  'reflection',
-  'saveReport',
-  'addClient',
-  'tabReport',
-  'tabPj',
-  'tabAttendance',
-  'outputLink',
-] as const
-
-export type FormControl = (typeof FORM_CONTROLS)[number]
-
 export type ReportLoadState = {
   data: DailyReportData
   baseline: DailyReportData
@@ -40,9 +21,17 @@ export type ReportLoadState = {
   loadRequestId: number
 }
 
-export type StartLoadEffect =
-  | { type: 'getByDate'; date: string; requestId: number }
-  | { type: 'assignLocation'; href: string }
+/** AC-L30 / L42 / L46 の操作可否（振る舞い契約） */
+export type FormControlsAccessibility = {
+  dateEnabled: boolean
+  retryEnabled: boolean
+  formLocked: boolean
+}
+
+export type StartLoadDeps = {
+  getByDate: (date: string) => Promise<DailyReportData | null>
+  assignLocation?: (href: string) => void
+}
 
 export type DateChangeResult =
   | { action: 'none'; state: ReportLoadState }
@@ -55,9 +44,8 @@ export function isReportDirty(
   throw new Error('STUB: isReportDirty')
 }
 
-export function emptyReport(date: string): DailyReportData {
-  const base = defaultDailyReport()
-  return { ...base, date: `__STUB_EMPTY__:${date}` }
+export function emptyReport(_date: string): DailyReportData {
+  throw new Error('STUB: emptyReport')
 }
 
 export function isUnauthorizedError(_error: unknown): boolean {
@@ -69,13 +57,10 @@ export function shouldFetchReport(_date: string): boolean {
 }
 
 export function applyLoadSuccess(
-  date: string,
-  report: DailyReportData | null,
+  _date: string,
+  _report: DailyReportData | null,
 ): DailyReportData {
-  if (report === null) {
-    return emptyReport(date)
-  }
-  return { ...report, date: `__STUB_APPLY__:${date}` }
+  throw new Error('STUB: applyLoadSuccess')
 }
 
 export function shouldPreventUnload(
@@ -89,77 +74,29 @@ export function isLoadableReport(_value: unknown): boolean {
   throw new Error('STUB: isLoadableReport')
 }
 
-/** loading / error 時に操作不可とするコントロール集合（AC-L30 / AC-L42 / AC-L46） */
-export function getDisabledControls(
+/** loading / error / ready 時の操作可否（AC-L30 / L42 / L46） */
+export function getFormControlsAccessibility(
   _loadStatus: LoadStatus,
-): ReadonlySet<FormControl> {
-  throw new Error('STUB: getDisabledControls')
-}
-
-/** error 時のみ操作可能なコントロール（AC-L46） */
-export function getErrorEnabledControls(): ReadonlySet<FormControl> {
-  throw new Error('STUB: getErrorEnabledControls')
-}
-
-/** SPA ヘッダー遷移で confirm を出すか（AC-L52 / AC-L56） */
-export function shouldConfirmLeavePage(
-  _dirty: boolean,
-  _loadStatus: LoadStatus,
-): boolean {
-  throw new Error('STUB: shouldConfirmLeavePage')
-}
-
-/** 日付変更で confirm を出すか（AC-L50 / AC-L52） */
-export function shouldConfirmDateChange(
-  _dirty: boolean,
-  _loadStatus: LoadStatus,
-): boolean {
-  throw new Error('STUB: shouldConfirmDateChange')
-}
-
-/** 入力タブ切替で confirm / beforeunload を出すか（AC-L53）— 常に false が正 */
-export function shouldConfirmTabSwitch(): boolean {
-  throw new Error('STUB: shouldConfirmTabSwitch')
-}
-
-export type StartLoadDeps = {
-  getByDate: (date: string) => Promise<DailyReportData | null>
-  assignLocation?: (href: string) => void
+): FormControlsAccessibility {
+  throw new Error('STUB: getFormControlsAccessibility')
 }
 
 /**
- * 読み込み開始の同期フェーズ（loadRequestId 加算・loading 遷移・日付先行更新・API 呼び出し効果）
- * 設計書 startLoad step 1〜4
+ * 読み込み開始〜応答確定（設計書 startLoad 8 ステップ）
  */
-export function beginStartLoad(
+export async function startLoad(
   state: ReportLoadState,
   date: string,
-): { state: ReportLoadState; effects: StartLoadEffect[] } {
-  return {
-    state: { ...state, loadStatus: 'ready', loadRequestId: -1 },
-    effects: [],
-  }
-}
-
-/**
- * 読み込み応答の確定（stale 無視・401・失敗・成功）
- * 設計書 startLoad step 5〜8
- */
-export async function finalizeStartLoad(
-  state: ReportLoadState,
-  date: string,
-  requestId: number,
   deps: StartLoadDeps,
-  _errorOrReport?: unknown,
 ): Promise<ReportLoadState> {
+  void state
   void date
-  void requestId
   void deps
-  return state
+  throw new Error('STUB: startLoad')
 }
 
-/** 日付変更ハンドラの純粋分岐（設計書「日付変更」1〜4） */
-export function handleDateChange(
+/** 日付変更の分岐（設計書「日付変更」1〜4） */
+export function onDateChange(
   state: ReportLoadState,
   nextDate: string,
   deps: { confirm: (message: string) => boolean },
@@ -167,15 +104,4 @@ export function handleDateChange(
   void deps
   void nextDate
   return { action: 'none', state }
-}
-
-/** 読み込み開始〜完了の一連手順（副作用は deps 経由） */
-export async function runStartLoad(
-  state: ReportLoadState,
-  date: string,
-  deps: StartLoadDeps,
-): Promise<ReportLoadState> {
-  void date
-  void deps
-  return { ...state, loadStatus: 'ready' }
 }

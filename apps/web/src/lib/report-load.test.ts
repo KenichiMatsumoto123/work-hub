@@ -18,7 +18,6 @@ import {
 } from './report-load'
 import { defaultDailyReport } from './defaults'
 import { makeProject, makeReport, makeSingleBlockReport, makeTask } from '../test/report-builders'
-import { isValidReportDate, isValidReportStructure } from '../server/report-normalize'
 import type { DailyReportData } from './types'
 
 beforeEach(() => {
@@ -128,7 +127,7 @@ describe('AC-L20〜L24 isReportDirty', () => {
   })
 
   it('開いた直後の空初期値を baseline にしたとき何も変えていなければ false', () => {
-    const empty = emptyReport('2000-04-21')
+    const empty = defaultDailyReport('2000-04-21')
     expect(isReportDirty(empty, empty)).toBe(false)
   })
 
@@ -159,6 +158,20 @@ describe('AC-L20〜L24 isReportDirty', () => {
   it('projects 配列長が違えば true', () => {
     const base = baselineReport()
     const current = { ...base, projects: [...base.projects, makeProject()] }
+    expect(isReportDirty(current, base)).toBe(true)
+  })
+
+  it('tasks 配列長が違えば true', () => {
+    const base = baselineReport()
+    const current = {
+      ...base,
+      projects: [
+        makeProject({
+          ...base.projects[0],
+          tasks: [...base.projects[0].tasks, makeTask()],
+        }),
+      ],
+    }
     expect(isReportDirty(current, base)).toBe(true)
   })
 })
@@ -203,33 +216,33 @@ describe('AC-L44 isUnauthorizedError', () => {
 
 describe('AC-L12 / L35 / L45 shouldFetchReport / isLoadableReport', () => {
   it.each(['2000-04-21', '2026-08-16'])(
-    'shouldFetchReport は isValidReportDate と同じ（合格: %s）',
+    'shouldFetchReport は有効日付 %s で true',
     (date) => {
-      expect(shouldFetchReport(date)).toBe(isValidReportDate(date))
+      expect(shouldFetchReport(date)).toBe(true)
     },
   )
 
   it.each(['', '2000-1-1', '2026-02-30', '0000-01-01'])(
-    'shouldFetchReport は isValidReportDate と同じ（不合格: %s）',
+    'shouldFetchReport は不正日付 %s で false',
     (date) => {
-      expect(shouldFetchReport(date)).toBe(isValidReportDate(date))
+      expect(shouldFetchReport(date)).toBe(false)
     },
   )
 
-  it('isLoadableReport は isValidReportStructure と同じ（合格）', () => {
+  it('isLoadableReport は正常構造で true', () => {
     const report = makeSingleBlockReport('2000-04-21', 'A社', [
       { label: 'PJ', name: 'タスク', actualHours: '1' },
     ])
-    expect(isLoadableReport(report)).toBe(isValidReportStructure(report))
+    expect(isLoadableReport(report)).toBe(true)
   })
 
-  it('isLoadableReport は isValidReportStructure と同じ（不合格: null）', () => {
-    expect(isLoadableReport(null)).toBe(isValidReportStructure(null))
+  it('isLoadableReport は null で false', () => {
+    expect(isLoadableReport(null)).toBe(false)
   })
 
-  it('isLoadableReport は isValidReportStructure と同じ（不合格: date 不正）', () => {
+  it('isLoadableReport は date 不正で false', () => {
     const bad = makeReport({ date: '2026-02-30', projects: [] })
-    expect(isLoadableReport(bad)).toBe(isValidReportStructure(bad))
+    expect(isLoadableReport(bad)).toBe(false)
   })
 })
 
@@ -248,7 +261,7 @@ describe('AC-L50 / L51 確認ダイアログ定数', () => {
 })
 
 describe('AC-L54 shouldPreventUnload', () => {
-  it('ready かつ dirty なら true', () => {
+  it('AC-L51 ready かつ dirty なら true（ヘッダー遷移 confirm の前提）', () => {
     expect(shouldPreventUnload(true, 'ready')).toBe(true)
   })
 

@@ -14,7 +14,6 @@ vi.mock('./time-utils', async (importOriginal) => {
 })
 
 const { defaultDailyReport } = await import('./defaults')
-const { getToday } = await import('./time-utils')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -22,7 +21,11 @@ beforeEach(() => {
 
 describe('AC-L04 defaultDailyReport', () => {
   it('date は getToday() と同一である', () => {
-    expect(defaultDailyReport().date).toBe(getToday())
+    expect(defaultDailyReport().date).toBe('2026-08-17')
+  })
+
+  it('引数で日付を指定したときはその日付を使う', () => {
+    expect(defaultDailyReport('2000-04-21').date).toBe('2000-04-21')
   })
 
   it('日付初期値に toISOString().slice(0, 10) を使わない', () => {

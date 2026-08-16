@@ -7,7 +7,7 @@ import {
   cleanup,
   saveReport,
 } from '../../test/report-db-helpers'
-import { makeReport, makeSingleBlockReport } from '../../test/report-builders'
+import { makeReport } from '../../test/report-builders'
 
 const DATES = ['2000-04-21', '2000-04-22']
 const PREFIX = 'ITL-'

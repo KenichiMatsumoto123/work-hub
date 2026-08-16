@@ -1,24 +1,17 @@
 /**
  * 読み込み分岐の結合（内部）テスト（AC-L30〜L37 / L40〜L46 / L50〜L56）
- * startLoad 相当の純粋手順をモックで検証する（React コンポーネントは対象外）
+ * 設計書 startLoad / onDateChange の入出力を検証する（React コンポーネントは対象外）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { DailyReportData } from './types'
 import {
-  beginStartLoad,
   DATE_CHANGE_CONFIRM,
-  emptyReport,
-  finalizeStartLoad,
-  FORM_CONTROLS,
-  getDisabledControls,
-  getErrorEnabledControls,
-  handleDateChange,
+  getFormControlsAccessibility,
   isReportDirty,
-  LEAVE_PAGE_CONFIRM,
-  runStartLoad,
-  shouldConfirmDateChange,
-  shouldConfirmLeavePage,
-  shouldConfirmTabSwitch,
+  LOGIN_ON_401_HREF,
+  onDateChange,
+  shouldPreventUnload,
+  startLoad,
   type ReportLoadState,
   type StartLoadDeps,
 } from './report-load'
@@ -53,114 +46,154 @@ function expectEmptyReport(report: DailyReportData, date: string): void {
   expect(task.progressActual).toBe('')
 }
 
-function initialState(date = '2000-04-21'): ReportLoadState {
-  const empty = emptyReport(date)
+function readyState(date = '2000-04-21', data?: DailyReportData): ReportLoadState {
+  const d = data ?? defaultDailyReport(date)
   return {
-    data: empty,
-    baseline: empty,
-    loadStatus: 'loading',
+    data: d,
+    baseline: d,
+    loadStatus: 'ready',
     loadRequestId: 0,
   }
 }
 
-describe('AC-L30 loading 中の disabled 集合', () => {
-  it('loading 中は日付欄を含む全コントロールが disabled', () => {
-    const disabled = getDisabledControls('loading')
-    for (const control of FORM_CONTROLS) {
-      expect(disabled.has(control)).toBe(true)
-    }
+function loadingState(
+  date: string,
+  requestId: number,
+  data?: DailyReportData,
+): ReportLoadState {
+  const d = data ?? defaultDailyReport(date)
+  return {
+    data: { ...d, date },
+    baseline: d,
+    loadStatus: 'loading',
+    loadRequestId: requestId,
+  }
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+describe('AC-L30 / L42 / L46 操作可否（getFormControlsAccessibility）', () => {
+  it('loading 中は日付変更不可・再試行不可・フォーム操作不可', () => {
+    expect(getFormControlsAccessibility('loading')).toEqual({
+      dateEnabled: false,
+      retryEnabled: false,
+      formLocked: true,
+    })
   })
 
-  it('ready 中はコントロールが disabled にならない', () => {
-    const disabled = getDisabledControls('ready')
-    expect(disabled.size).toBe(0)
+  it('error 中は日付変更可・再試行可・フォーム本体はロック', () => {
+    expect(getFormControlsAccessibility('error')).toEqual({
+      dateEnabled: true,
+      retryEnabled: true,
+      formLocked: true,
+    })
+  })
+
+  it('ready 中は日付変更可・再試行不可・フォーム操作可', () => {
+    expect(getFormControlsAccessibility('ready')).toEqual({
+      dateEnabled: true,
+      retryEnabled: false,
+      formLocked: false,
+    })
   })
 })
 
-describe('AC-L46 error 中の操作可能コントロール', () => {
-  it('error 中は日付欄と再試行のみ操作可能', () => {
-    const enabled = getErrorEnabledControls()
-    expect(enabled.has('date')).toBe(true)
-    expect(enabled.has('saveReport')).toBe(false)
-    expect(enabled.has('projectInput')).toBe(false)
-  })
-})
-
-describe('beginStartLoad：日付先行更新（F-A3-001）', () => {
-  it('await 前に data.date だけ要求日付へ更新し loadStatus は loading', () => {
-    const state = initialState('2000-04-21')
-    state.data = { ...state.data, note: '保持' }
-    const { state: next, effects } = beginStartLoad(state, '2000-04-22')
-
-    expect(next.data.date).toBe('2000-04-22')
-    expect(next.data.note).toBe('保持')
-    expect(next.loadStatus).toBe('loading')
-    expect(effects).toEqual([{ type: 'getByDate', date: '2000-04-22', requestId: 1 }])
-  })
-
-  it('invalid date では API を呼ばず emptyReport("") で ready', () => {
-    const state = initialState('2000-04-21')
-    const { state: next, effects } = beginStartLoad(state, '2026-02-30')
-
-    expect(effects).toEqual([])
-    expectEmptyReport(next.data, '')
-    expectEmptyReport(next.baseline, '')
-    expect(next.loadStatus).toBe('ready')
-  })
-})
-
-describe('finalizeStartLoad：stale 応答・401・失敗・成功', () => {
+describe('startLoad：同期フェーズ・応答確定', () => {
   const saved = makeSingleBlockReport('2000-04-20', 'A社', [
     { label: 'PJ', name: 'タスク', actualHours: '1' },
   ])
 
+  it('await 前に data.date だけ要求日付へ更新し loadStatus は loading', async () => {
+    const state = readyState('2000-04-21')
+    state.data = { ...state.data, note: '保持' }
+    const getByDate = vi.fn().mockResolvedValue(saved)
+
+    const result = await startLoad(state, '2000-04-22', { getByDate })
+
+    expect(result.data.date).toBe('2000-04-22')
+    expect(result.data.note).toBe('保持')
+    expect(result.loadStatus).toBe('loading')
+    expect(getByDate).toHaveBeenCalledWith('2000-04-22')
+  })
+
+  it.each(['2026-02-30', ''])(
+    'invalid / 空日付 %s では API を呼ばず emptyReport("") で ready',
+    async (date) => {
+      const state = readyState('2000-04-21')
+      const getByDate = vi.fn()
+
+      const result = await startLoad(state, date, { getByDate })
+
+      expect(getByDate).not.toHaveBeenCalled()
+      expectEmptyReport(result.data, '')
+      expectEmptyReport(result.baseline, '')
+      expect(result.loadStatus).toBe('ready')
+    },
+  )
+
   it('stale 応答は無視し、現行 requestId の応答のみ確定する', async () => {
-    const saved = makeSingleBlockReport('2000-04-20', 'A社', [
+    const saved21 = makeSingleBlockReport('2000-04-21', 'A社', [
       { label: 'PJ', name: 'タスク', actualHours: '1' },
     ])
-    const state: ReportLoadState = {
-      data: { ...saved, date: '2000-04-22' },
-      baseline: saved,
-      loadStatus: 'loading',
-      loadRequestId: 2,
-    }
-    const deps: StartLoadDeps = { getByDate: vi.fn().mockResolvedValue(saved) }
+    const saved22 = makeSingleBlockReport('2000-04-22', 'B社', [
+      { label: 'PJ2', name: 'タスク2', actualHours: '2' },
+    ])
+    const d1 = createDeferred<DailyReportData | null>()
+    const d2 = createDeferred<DailyReportData | null>()
+    const getByDate = vi
+      .fn()
+      .mockReturnValueOnce(d1.promise)
+      .mockReturnValueOnce(d2.promise)
 
-    const stale = await finalizeStartLoad(state, '2000-04-21', 1, deps)
-    expect(stale).toEqual(state)
+    const s0 = readyState('2000-04-20')
+    const p1 = startLoad(s0, '2000-04-21', { getByDate })
+    const p2 = startLoad(loadingState('2000-04-22', 2, s0.data), '2000-04-22', {
+      getByDate,
+    })
 
-    const fresh = await finalizeStartLoad(state, '2000-04-22', 2, deps)
-    expect(fresh.data.date).toBe('2000-04-22')
-    expect(fresh.baseline.date).toBe('2000-04-22')
-    expect(fresh.loadStatus).toBe('ready')
+    d2.resolve(saved22)
+    d1.resolve(saved21)
+
+    const [settled1, settled2] = await Promise.allSettled([p1, p2])
+    expect(settled2.status).toBe('fulfilled')
+    expect(settled1.status).toBe('fulfilled')
+    const result2 = (settled2 as PromiseFulfilledResult<ReportLoadState>).value
+    const result1 = (settled1 as PromiseFulfilledResult<ReportLoadState>).value
+
+    expect(result2.data.date).toBe('2000-04-22')
+    expect(result2.baseline.date).toBe('2000-04-22')
+    expect(result2.loadStatus).toBe('ready')
+    expect(result1).toEqual(result2)
   })
 
   it('401 では location.assign し失敗バナー用の error にしない', async () => {
     const assign = vi.fn()
-    const state = initialState('2000-04-21')
-    state.loadRequestId = 1
+    const state = readyState('2000-04-21')
     const deps: StartLoadDeps = {
-      getByDate: vi.fn(),
+      getByDate: vi.fn().mockRejectedValue(
+        new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), { status: 401 }),
+      ),
       assignLocation: assign,
     }
-    const err = new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), { status: 401 })
-    const result = await finalizeStartLoad(state, '2000-04-21', 1, deps, err)
 
-    expect(assign).toHaveBeenCalledWith('/login?redirect=/')
+    const result = await startLoad(state, '2000-04-21', deps)
+
+    expect(assign).toHaveBeenCalledWith(LOGIN_ON_401_HREF)
     expect(result.loadStatus).not.toBe('error')
   })
 
   it('その他例外では error・内容は維持・日付欄は要求日付', async () => {
-    const state = initialState('2000-04-21')
+    const state = readyState('2000-04-21')
     state.data = { ...state.data, note: '維持', date: '2000-04-22' }
-    state.loadRequestId = 1
-    const result = await finalizeStartLoad(
-      state,
-      '2000-04-22',
-      1,
-      { getByDate: vi.fn() },
-      new Error('network'),
-    )
+    const result = await startLoad(state, '2000-04-22', {
+      getByDate: vi.fn().mockRejectedValue(new Error('network')),
+    })
 
     expect(result.loadStatus).toBe('error')
     expect(result.data.note).toBe('維持')
@@ -168,9 +201,8 @@ describe('finalizeStartLoad：stale 応答・401・失敗・成功', () => {
   })
 
   it('null 成功は emptyReport(date) で baseline 更新', async () => {
-    const state = initialState('2000-04-21')
-    state.loadRequestId = 1
-    const result = await finalizeStartLoad(state, '2000-04-22', 1, {
+    const state = readyState('2000-04-21')
+    const result = await startLoad(state, '2000-04-22', {
       getByDate: vi.fn().mockResolvedValue(null),
     })
 
@@ -180,9 +212,8 @@ describe('finalizeStartLoad：stale 応答・401・失敗・成功', () => {
   })
 
   it('loadable 成功は applyLoadSuccess で置換', async () => {
-    const state = initialState('2000-04-21')
-    state.loadRequestId = 1
-    const result = await finalizeStartLoad(state, '2000-04-22', 1, {
+    const state = readyState('2000-04-21')
+    const result = await startLoad(state, '2000-04-22', {
       getByDate: vi.fn().mockResolvedValue(saved),
     })
 
@@ -192,11 +223,10 @@ describe('finalizeStartLoad：stale 応答・401・失敗・成功', () => {
   })
 
   it('構造不正の戻りは error（空で上書きしない）', async () => {
-    const state = initialState('2000-04-21')
+    const state = readyState('2000-04-21')
     state.data = { ...state.data, note: '維持', date: '2000-04-22' }
-    state.loadRequestId = 1
     const bad = { date: '2026-02-30', projects: [] } as unknown as DailyReportData
-    const result = await finalizeStartLoad(state, '2000-04-22', 1, {
+    const result = await startLoad(state, '2000-04-22', {
       getByDate: vi.fn().mockResolvedValue(bad),
     })
 
@@ -205,13 +235,114 @@ describe('finalizeStartLoad：stale 応答・401・失敗・成功', () => {
   })
 })
 
-describe('handleDateChange（AC-L50 / L52）', () => {
+describe('AC-L33 日付を保存済み日 D へ切替（未保存なし）', () => {
+  it('読み込み成功後 isReportDirty が false かつ data.date が D', async () => {
+    const targetDate = '2000-04-01'
+    const saved = makeSingleBlockReport(targetDate, 'ITL-E2E-L1-取引先', [
+      { label: 'PJ', name: 'タスク', actualHours: '2.5' },
+    ])
+    const state = readyState('2000-04-11')
+    const change = onDateChange(state, targetDate, { confirm: vi.fn() })
+
+    expect(change.action).toBe('startLoad')
+    expect(change.date).toBe(targetDate)
+
+    const result = await startLoad(change.state, change.date, {
+      getByDate: vi.fn().mockResolvedValue(saved),
+    })
+
+    expect(isReportDirty(result.data, result.baseline)).toBe(false)
+    expect(result.data.date).toBe(targetDate)
+    expect(result.loadStatus).toBe('ready')
+  })
+})
+
+describe('AC-L34 日付を行なし日 D へ切替（未保存なし）', () => {
+  it('読み込み成功後に空初期値・日付欄 D・ready', async () => {
+    const targetDate = '2000-04-02'
+    const state = readyState('2000-04-11')
+    const change = onDateChange(state, targetDate, { confirm: vi.fn() })
+
+    expect(change.action).toBe('startLoad')
+    const result = await startLoad(change.state, change.date, {
+      getByDate: vi.fn().mockResolvedValue(null),
+    })
+
+    expectEmptyReport(result.data, targetDate)
+    expectEmptyReport(result.baseline, targetDate)
+    expect(result.data.date).toBe(targetDate)
+    expect(result.loadStatus).toBe('ready')
+  })
+})
+
+describe('AC-L41 再試行', () => {
+  it('error から startLoad(data.date) で再読み込みし成功すれば dirty false', async () => {
+    const targetDate = '2000-04-22'
+    const saved = makeSingleBlockReport(targetDate, 'A社', [
+      { label: 'PJ', name: 'タスク', actualHours: '1' },
+    ])
+    const errorState: ReportLoadState = {
+      ...readyState('2000-04-21'),
+      data: { ...defaultDailyReport(targetDate), note: '維持' },
+      baseline: defaultDailyReport('2000-04-21'),
+      loadStatus: 'error',
+      loadRequestId: 1,
+    }
+
+    const result = await startLoad(errorState, errorState.data.date, {
+      getByDate: vi.fn().mockResolvedValue(saved),
+    })
+
+    expect(isReportDirty(result.data, result.baseline)).toBe(false)
+    expect(result.data.date).toBe(targetDate)
+    expect(result.loadStatus).toBe('ready')
+  })
+})
+
+describe('AC-L46 error 中の日付変更・再試行', () => {
+  it('error 中は日付変更と再試行が操作可能', () => {
+    expect(getFormControlsAccessibility('error')).toEqual({
+      dateEnabled: true,
+      retryEnabled: true,
+      formLocked: true,
+    })
+  })
+
+  it('error かつ dirty なら confirm 後に変更先で startLoad', async () => {
+    const targetDate = '2000-04-12'
+    const errorState: ReportLoadState = {
+      ...readyState('2000-04-11'),
+      data: {
+        ...defaultDailyReport('2000-04-11'),
+        projects: [{ ...defaultDailyReport().projects[0], name: 'x' }],
+      },
+      loadStatus: 'error',
+      loadRequestId: 1,
+    }
+    const confirm = vi.fn(() => true)
+    const change = onDateChange(errorState, targetDate, { confirm })
+
+    expect(confirm).toHaveBeenCalledWith(DATE_CHANGE_CONFIRM)
+    expect(change.action).toBe('startLoad')
+    expect(change.date).toBe(targetDate)
+
+    const result = await startLoad(change.state, change.date, {
+      getByDate: vi.fn().mockResolvedValue(null),
+    })
+    expectEmptyReport(result.data, targetDate)
+    expect(result.loadStatus).toBe('ready')
+  })
+})
+
+describe('onDateChange（AC-L50 / L52）', () => {
   it('dirty かつ confirm が false なら API 非呼び出し・状態維持', () => {
-    const state = initialState('2000-04-11')
-    state.loadStatus = 'ready'
-    state.data = { ...state.data, projects: [{ ...state.data.projects[0], name: 'x' }] }
+    const state = readyState('2000-04-11')
+    state.data = {
+      ...state.data,
+      projects: [{ ...state.data.projects[0], name: 'x' }],
+    }
     const confirm = vi.fn(() => false)
-    const result = handleDateChange(state, '2000-04-12', { confirm })
+    const result = onDateChange(state, '2000-04-12', { confirm })
 
     expect(confirm).toHaveBeenCalledWith(DATE_CHANGE_CONFIRM)
     expect(result.action).toBe('none')
@@ -219,67 +350,79 @@ describe('handleDateChange（AC-L50 / L52）', () => {
   })
 
   it('非 dirty では confirm せず startLoad する', () => {
-    const state = initialState('2000-04-11')
-    state.loadStatus = 'ready'
+    const state = readyState('2000-04-11')
     const confirm = vi.fn()
-    const result = handleDateChange(state, '2000-04-12', { confirm })
+    const result = onDateChange(state, '2000-04-12', { confirm })
 
     expect(confirm).not.toHaveBeenCalled()
     expect(result.action).toBe('startLoad')
     expect(result.date).toBe('2000-04-12')
   })
-})
 
-describe('shouldConfirmLeavePage / shouldConfirmTabSwitch（AC-L52 / L53 / L56）', () => {
-  it('dirty でないときヘッダー遷移 confirm なし', () => {
-    expect(shouldConfirmLeavePage(false, 'ready')).toBe(false)
-  })
+  it('AC-L50 dirty かつ confirm が true なら変更先で startLoad', async () => {
+    const state = readyState('2000-04-11')
+    state.data = {
+      ...state.data,
+      projects: [{ ...state.data.projects[0], name: 'x' }],
+    }
+    const confirm = vi.fn(() => true)
+    const change = onDateChange(state, '2000-04-12', { confirm })
 
-  it('loading 中はヘッダー遷移 confirm なし', () => {
-    expect(shouldConfirmLeavePage(true, 'loading')).toBe(false)
-  })
+    expect(confirm).toHaveBeenCalledWith(DATE_CHANGE_CONFIRM)
+    expect(change.action).toBe('startLoad')
+    expect(change.date).toBe('2000-04-12')
 
-  it('error かつ dirty なら LEAVE_PAGE_CONFIRM', () => {
-    expect(shouldConfirmLeavePage(true, 'error')).toBe(true)
-  })
-
-  it('入力タブ切替では confirm しない', () => {
-    expect(shouldConfirmTabSwitch()).toBe(false)
-  })
-})
-
-describe('shouldConfirmDateChange', () => {
-  it('ready かつ dirty なら日付変更 confirm', () => {
-    expect(shouldConfirmDateChange(true, 'ready')).toBe(true)
-  })
-
-  it('ready かつ非 dirty なら confirm しない', () => {
-    expect(shouldConfirmDateChange(false, 'ready')).toBe(false)
-  })
-})
-
-describe('runStartLoad 統合', () => {
-  it('成功後 isReportDirty が false になる（AC-L31 相当の純粋検証）', async () => {
-    const saved = makeSingleBlockReport('2000-04-10', 'ITL-E2E-L7-取引先', [
-      {
-        label: 'PJ',
-        name: 'タスク',
-        actualHours: '3',
-      },
-    ])
-    const deps: StartLoadDeps = { getByDate: vi.fn().mockResolvedValue(saved) }
-    const state = initialState('2000-04-10')
-    const result = await runStartLoad(state, '2000-04-10', deps)
-
-    expect(isReportDirty(result.data, result.baseline)).toBe(false)
+    const result = await startLoad(change.state, change.date, {
+      getByDate: vi.fn().mockResolvedValue(null),
+    })
+    expectEmptyReport(result.data, '2000-04-12')
     expect(result.loadStatus).toBe('ready')
   })
 })
 
-describe('LEAVE_PAGE_CONFIRM 定数の利用', () => {
-  it('文言が設計書どおり', () => {
-    expect(LEAVE_PAGE_CONFIRM).toBe(
-      '入力内容が保存されていません。このページを離れますか？',
-    )
+describe('AC-L55 保存成功後の dirty 解除', () => {
+  it('baseline 更新後は dirty でなく日付変更 confirm も離脱 confirm も出ない', () => {
+    const saved = makeSingleBlockReport('2000-04-11', 'A社', [
+      { label: 'PJ', name: 'タスク', actualHours: '1' },
+    ])
+    const afterSave: ReportLoadState = {
+      data: saved,
+      baseline: saved,
+      loadStatus: 'ready',
+      loadRequestId: 1,
+    }
+
+    expect(isReportDirty(afterSave.data, afterSave.baseline)).toBe(false)
+    expect(shouldPreventUnload(false, 'ready')).toBe(false)
+
+    const confirm = vi.fn()
+    const change = onDateChange(afterSave, '2000-04-12', { confirm })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(change.action).toBe('startLoad')
+  })
+})
+
+describe('AC-L51 / L56 / L54 shouldPreventUnload（ヘッダー遷移・beforeunload）', () => {
+  it('loading 中はヘッダー遷移 confirm なし（shouldPreventUnload false）', () => {
+    expect(shouldPreventUnload(true, 'loading')).toBe(false)
+  })
+
+  it('AC-L56 error かつ dirty なら shouldPreventUnload true', () => {
+    expect(shouldPreventUnload(true, 'error')).toBe(true)
+  })
+})
+
+describe('AC-L31 相当：オープン時の保存済み読み込み', () => {
+  it('成功後 isReportDirty が false になる', async () => {
+    const saved = makeSingleBlockReport('2000-04-10', 'ITL-E2E-L7-取引先', [
+      { label: 'PJ', name: 'タスク', actualHours: '3' },
+    ])
+    const state = readyState('2000-04-10')
+    const result = await startLoad(state, '2000-04-10', {
+      getByDate: vi.fn().mockResolvedValue(saved),
+    })
+
+    expect(isReportDirty(result.data, result.baseline)).toBe(false)
+    expect(result.loadStatus).toBe('ready')
   })
 })
