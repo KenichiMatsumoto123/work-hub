@@ -13,7 +13,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { requireSession } from '../middleware/require-session'
 import { db } from '../db'
 import { clients, dailyReports, projects, tasks, timeEntries } from '../schema'
-import { eq, and, gte, lt, sql } from 'drizzle-orm'
+import { eq, and, or, gte, lt, inArray, sql } from 'drizzle-orm'
 import type { DailyReportData } from '~/lib/types'
 import { parseTime } from '~/lib/time-utils'
 import {
@@ -173,57 +173,109 @@ function buildValidationErrorMessage(
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
- * M-1〜M-3 共通：「見つかればその ID を使う → 見つからなければ作成」。
- * 作成時の競合（同一キーの同時挿入）は S-1〜S-3 のユニーク制約が防ぐため、
- * 競合時は挿入を無視して再検索する（ON CONFLICT DO NOTHING → 再 SELECT）。
- * 再 SELECT が 0 件だった場合、挿入と再検索をちょうど 1 回だけやり直す。
- * それでも解決できなければエラーを投げてトランザクションを中断する（AC-64）。
+ * M-1〜M-3 共通のバッチ版：「見つかればその ID を使う → 見つからなければ作成」を
+ * キー集合に対して 1 回の複数行 `INSERT ... ON CONFLICT DO NOTHING` ＋ 1 回の複数行
+ * 再 SELECT で行う（設計書「解決の順序」節のシーケンス図が示す「まとめて解決」の形。
+ * 名前ごとに 1 文ずつ発行すると、異なる日付の保存が同時に新規マスタ群を作るときに
+ * ABBA デッドロックが構造的に組み上がる。1 文の複数行 INSERT では最初の行で
+ * 直列化されるためこの経路が成立しない）。
+ *
+ * `sortedKeys` は「解決の順序」に従ってソート済みであることを呼び出し元が保証する。
+ * INSERT の VALUES の並び順は `sortedKeys` の順序をそのまま使う（フィルタは順序を
+ * 保存する）ため、全トランザクションで行ロックの取得順序が一致する。
+ *
+ * 再 SELECT で見つからないキーが残った場合、挿入と再検索をちょうど 1 回だけ
+ * やり直す。それでも解決できなければエラーを投げてトランザクションを中断する
+ * （AC-64。単一キー版の「初回 SELECT →（INSERT＋再 SELECT）を最大 2 回」という
+ * 終端条件を、キー集合全体に対して保ったまま踏襲する）。
  */
-async function resolveWithRetry(
-  select: () => Promise<{ id: string }[]>,
-  insert: () => Promise<unknown>,
-  label: string,
-): Promise<string> {
-  const initial = await select()
-  if (initial[0]) return initial[0].id
+async function resolveBatchWithRetry<K>(
+  sortedKeys: K[],
+  keyToString: (key: K) => string,
+  labelOf: (key: K) => string,
+  select: (keys: K[]) => Promise<Map<string, string>>,
+  insert: (keys: K[]) => Promise<unknown>,
+): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>()
+  if (sortedKeys.length === 0) return resolved
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await insert()
-    const reselected = await select()
-    if (reselected[0]) return reselected[0].id
+  const applySelect = async (keys: K[]) => {
+    const found = await select(keys)
+    for (const [key, id] of found) resolved.set(key, id)
   }
 
-  throw new Error(`マスタの解決に失敗しました: ${label}`)
+  await applySelect(sortedKeys)
+  let pending = sortedKeys.filter((key) => !resolved.has(keyToString(key)))
+
+  for (let attempt = 0; attempt < 2 && pending.length > 0; attempt += 1) {
+    await insert(pending)
+    await applySelect(pending)
+    pending = pending.filter((key) => !resolved.has(keyToString(key)))
+  }
+
+  if (pending.length > 0) {
+    throw new Error(`マスタの解決に失敗しました: ${pending.map(labelOf).join(', ')}`)
+  }
+
+  return resolved
 }
 
-/** M-1: 取引先（`clients`）。検索キー：`name = normalizeName(Project.name)` */
-async function resolveClientId(tx: Tx, name: string): Promise<string> {
-  const select = () =>
-    tx.select({ id: clients.id }).from(clients).where(eq(clients.name, name)).limit(1)
-
-  return resolveWithRetry(
-    select,
-    () => tx.insert(clients).values({ name }).onConflictDoNothing({ target: clients.name }),
-    name,
+/**
+ * M-1: 取引先（`clients`）。検索キー：`name = normalizeName(Project.name)`。
+ * `sortedNames` は正規化後の名前の昇順（解決の順序 1.）。
+ */
+async function resolveClientIds(tx: Tx, sortedNames: string[]): Promise<Map<string, string>> {
+  return resolveBatchWithRetry(
+    sortedNames,
+    (name) => name,
+    (name) => name,
+    async (names) => {
+      const rows = await tx
+        .select({ id: clients.id, name: clients.name })
+        .from(clients)
+        .where(inArray(clients.name, names))
+      return new Map(rows.map((row) => [row.name, row.id]))
+    },
+    (names) =>
+      tx
+        .insert(clients)
+        .values(names.map((name) => ({ name })))
+        .onConflictDoNothing({ target: clients.name }),
   )
+}
+
+type ProjectKey = { clientId: string; name: string }
+
+/** プロジェクトのキー文字列（衝突しない形式。M-4 と同じ `JSON.stringify` 方式） */
+function projectKeyString(clientId: string, name: string): string {
+  return JSON.stringify([clientId, name])
 }
 
 /**
  * M-2: プロジェクト（`projects`）。
- * 検索キー：`client_id = <解決済み取引先ID> AND name = normalizeName(Task.label)`
+ * 検索キー：`client_id = <解決済み取引先ID> AND name = normalizeName(Task.label)`。
+ * `sortedKeys` は `(取引先ID, 正規化後の名前)` の昇順（解決の順序 2.）。
  */
-async function resolveProjectId(tx: Tx, clientId: string, name: string): Promise<string> {
-  const where = and(eq(projects.clientId, clientId), eq(projects.name, name))
-  const select = () => tx.select({ id: projects.id }).from(projects).where(where).limit(1)
-
-  return resolveWithRetry(
-    select,
-    () =>
+async function resolveProjectIds(
+  tx: Tx,
+  sortedKeys: ProjectKey[],
+): Promise<Map<string, string>> {
+  return resolveBatchWithRetry(
+    sortedKeys,
+    (key) => projectKeyString(key.clientId, key.name),
+    (key) => key.name,
+    async (keys) => {
+      const rows = await tx
+        .select({ id: projects.id, clientId: projects.clientId, name: projects.name })
+        .from(projects)
+        .where(or(...keys.map((key) => and(eq(projects.clientId, key.clientId), eq(projects.name, key.name)))))
+      return new Map(rows.map((row) => [projectKeyString(row.clientId, row.name), row.id]))
+    },
+    (keys) =>
       tx
         .insert(projects)
-        .values({ clientId, name })
+        .values(keys.map(({ clientId, name }) => ({ clientId, name })))
         .onConflictDoNothing({ target: [projects.clientId, projects.name] }),
-    name,
   )
 }
 
@@ -231,27 +283,38 @@ async function resolveProjectId(tx: Tx, clientId: string, name: string): Promise
  * M-3: タスク（`tasks`）。検索キー：`project_id`・`client_id`・`title` の 3 つ組。
  * NULL を含む比較には `IS NOT DISTINCT FROM` を用いる（`eq()` の `= NULL` は
  * 三値論理で常に UNKNOWN になり、adhoc タスクが決してヒットしないため）。
+ * `sortedKeys` は `(project_id, client_id, title)` の昇順・NULL 最小（解決の順序 3.）。
  */
-async function resolveTaskId(
+async function resolveTaskIds(
   tx: Tx,
-  type: 'project' | 'adhoc',
-  projectId: string | null,
-  clientId: string | null,
-  title: string,
-): Promise<string> {
-  const where = sql`${tasks.projectId} IS NOT DISTINCT FROM ${projectId}
-    AND ${tasks.clientId} IS NOT DISTINCT FROM ${clientId}
-    AND ${tasks.title} = ${title}`
-  const select = () => tx.select({ id: tasks.id }).from(tasks).where(where).limit(1)
-
-  return resolveWithRetry(
-    select,
-    () =>
+  sortedKeys: ResolvedTaskKey[],
+): Promise<Map<string, string>> {
+  return resolveBatchWithRetry(
+    sortedKeys,
+    (key) => taskKeyString(key),
+    (key) => key.title,
+    async (keys) => {
+      const conditions = keys.map(
+        (key) => sql`(${tasks.projectId} IS NOT DISTINCT FROM ${key.projectId}
+          AND ${tasks.clientId} IS NOT DISTINCT FROM ${key.clientId}
+          AND ${tasks.title} = ${key.title})`,
+      )
+      const rows = await tx
+        .select({ id: tasks.id, projectId: tasks.projectId, clientId: tasks.clientId, title: tasks.title })
+        .from(tasks)
+        .where(sql.join(conditions, sql` OR `))
+      return new Map(
+        rows.map((row) => [
+          taskKeyString({ projectId: row.projectId, clientId: row.clientId, title: row.title }),
+          row.id,
+        ]),
+      )
+    },
+    (keys) =>
       tx
         .insert(tasks)
-        .values({ type, title, projectId, clientId })
+        .values(keys.map((key) => ({ type: key.type, title: key.title, projectId: key.projectId, clientId: key.clientId })))
         .onConflictDoNothing({ target: [tasks.projectId, tasks.clientId, tasks.title] }),
-    title,
   )
 }
 
@@ -269,20 +332,26 @@ type ResolvedTaskKey = {
   title: string
 }
 
-function taskKeyString(key: ResolvedTaskKey): string {
+/** タスクのキー文字列（衝突しない形式。M-4 節が規定する `JSON.stringify` 方式） */
+function taskKeyString(key: { projectId: string | null; clientId: string | null; title: string }): string {
   return JSON.stringify([key.projectId, key.clientId, key.title])
 }
 
 /**
  * マスタ（取引先 → プロジェクト → タスク）を「解決の順序」に従ってまとめて解決し、
  * `time_entries` へ挿入する行を組み立てる（T-1 トランザクション内手順 4・5）。
+ *
+ * 各フェーズは「重複排除済みキー集合に対する 1 回の複数行 INSERT ＋ 1 回の複数行
+ * 再 SELECT」（`resolveClientIds` / `resolveProjectIds` / `resolveTaskIds`）で解決する。
+ * 重複排除（`Set` / `Map` によるキー収集）が M-4 の同一保存内キャッシュを兼ねる
+ * （同じキーを 2 回 DB に問い合わせない）。
  */
 async function resolveMastersAndInsertEntries(
   tx: Tx,
   date: string,
   targetRows: TargetRow[],
 ): Promise<void> {
-  // 1. 取引先：正規化後の名前の昇順に解決する
+  // 1. 取引先：正規化後の名前の昇順に解決する（M-4：Set で重複排除 = キャッシュ）
   const clientNames = Array.from(
     new Set(
       targetRows
@@ -291,34 +360,29 @@ async function resolveMastersAndInsertEntries(
     ),
   ).sort()
 
-  const clientIdByName = new Map<string, string>()
-  for (const name of clientNames) {
-    clientIdByName.set(name, await resolveClientId(tx, name))
-  }
+  const clientIdByName = await resolveClientIds(tx, clientNames)
 
   // 2. プロジェクト：(取引先ID, 正規化後の名前) の昇順に解決する
   //    （取引先が空の行の projectName は resolveTaskIdentity により常に null なので対象外）
-  const projectKeys = new Map<string, { clientId: string; name: string }>()
+  //    M-4：Map で重複排除 = キャッシュ
+  const projectKeys = new Map<string, ProjectKey>()
   for (const row of targetRows) {
     const { identity } = row
     if (identity.type === 'project' && identity.clientName !== null && identity.projectName !== null) {
       const clientId = clientIdByName.get(identity.clientName)
       if (clientId === undefined) continue
-      const key = `${clientId} ${identity.projectName}`
+      const key = projectKeyString(clientId, identity.projectName)
       if (!projectKeys.has(key)) {
         projectKeys.set(key, { clientId, name: identity.projectName })
       }
     }
   }
-  const sortedProjectKeys = Array.from(projectKeys.entries()).sort(([, a], [, b]) => {
+  const sortedProjectKeys = Array.from(projectKeys.values()).sort((a, b) => {
     const byClient = compareNullableString(a.clientId, b.clientId)
     return byClient !== 0 ? byClient : compareNullableString(a.name, b.name)
   })
 
-  const projectIdByKey = new Map<string, string>()
-  for (const [key, { clientId, name }] of sortedProjectKeys) {
-    projectIdByKey.set(key, await resolveProjectId(tx, clientId, name))
-  }
+  const projectIdByKey = await resolveProjectIds(tx, sortedProjectKeys)
 
   /** 行から解決済みの (type, projectId, clientId, title) を得る（DB へは触れない） */
   function resolvedKeyOf(row: TargetRow): ResolvedTaskKey {
@@ -326,19 +390,20 @@ async function resolveMastersAndInsertEntries(
     const clientId = identity.clientName !== null ? (clientIdByName.get(identity.clientName) ?? null) : null
     const projectId =
       identity.type === 'project' && identity.projectName !== null && clientId !== null
-        ? (projectIdByKey.get(`${clientId} ${identity.projectName}`) ?? null)
+        ? (projectIdByKey.get(projectKeyString(clientId, identity.projectName)) ?? null)
         : null
     return { type: identity.type, projectId, clientId, title: identity.title }
   }
 
   // 3. タスク：(project_id, client_id, title) の昇順（NULL は最小）に解決する
+  //    M-4：Map で重複排除 = キャッシュ
   const taskKeys = new Map<string, ResolvedTaskKey>()
   for (const row of targetRows) {
     const key = resolvedKeyOf(row)
     const keyString = taskKeyString(key)
     if (!taskKeys.has(keyString)) taskKeys.set(keyString, key)
   }
-  const sortedTaskKeys = Array.from(taskKeys.entries()).sort(([, a], [, b]) => {
+  const sortedTaskKeys = Array.from(taskKeys.values()).sort((a, b) => {
     const byProject = compareNullableString(a.projectId, b.projectId)
     if (byProject !== 0) return byProject
     const byClient = compareNullableString(a.clientId, b.clientId)
@@ -346,13 +411,7 @@ async function resolveMastersAndInsertEntries(
     return a.title < b.title ? -1 : a.title > b.title ? 1 : 0
   })
 
-  const taskIdByKey = new Map<string, string>()
-  for (const [keyString, key] of sortedTaskKeys) {
-    taskIdByKey.set(
-      keyString,
-      await resolveTaskId(tx, key.type, key.projectId, key.clientId, key.title),
-    )
-  }
+  const taskIdByKey = await resolveTaskIds(tx, sortedTaskKeys)
 
   // 5. 対象行が 1 件以上ある場合、time_entries を 1 回の複数行 INSERT で挿入する
   //    （0 件のときは insert().values([]) が例外を投げるため発行しない）
