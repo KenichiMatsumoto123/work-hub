@@ -29,6 +29,30 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+/** 空初期値（id 除外）。設計書 emptyReport = defaultDailyReport(date) の契約 */
+function expectEmptyReport(report: DailyReportData, date: string): void {
+  expect(report.date).toBe(date)
+  expect(report.startTime).toBe('9:00')
+  expect(report.endTime).toBe('18:00')
+  expect(report.breakTime).toBe('1:00')
+  expect(report.note).toBe('')
+  expect(report.goodPoints).toBe('')
+  expect(report.badPoints).toBe('')
+  expect(report.nextPlan).toBe('')
+  expect(report.projects).toHaveLength(1)
+  expect(report.projects[0].name).toBe('')
+  expect(report.projects[0].plannedHours).toBe('')
+  expect(report.projects[0].tasks).toHaveLength(1)
+  const task = report.projects[0].tasks[0]
+  expect(task.label).toBe('')
+  expect(task.name).toBe('')
+  expect(task.plannedHours).toBe('')
+  expect(task.actualHours).toBe('')
+  expect(task.progressBefore).toBe('')
+  expect(task.progressExpected).toBe('')
+  expect(task.progressActual).toBe('')
+}
+
 function initialState(date = '2000-04-21'): ReportLoadState {
   const empty = emptyReport(date)
   return {
@@ -79,8 +103,8 @@ describe('beginStartLoad：日付先行更新（F-A3-001）', () => {
     const { state: next, effects } = beginStartLoad(state, '2026-02-30')
 
     expect(effects).toEqual([])
-    expect(next.data).toEqual(emptyReport(''))
-    expect(next.baseline).toEqual(emptyReport(''))
+    expectEmptyReport(next.data, '')
+    expectEmptyReport(next.baseline, '')
     expect(next.loadStatus).toBe('ready')
   })
 })
@@ -150,8 +174,8 @@ describe('finalizeStartLoad：stale 応答・401・失敗・成功', () => {
       getByDate: vi.fn().mockResolvedValue(null),
     })
 
-    expect(result.data).toEqual(emptyReport('2000-04-22'))
-    expect(result.baseline).toEqual(emptyReport('2000-04-22'))
+    expectEmptyReport(result.data, '2000-04-22')
+    expectEmptyReport(result.baseline, '2000-04-22')
     expect(result.loadStatus).toBe('ready')
   })
 

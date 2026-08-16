@@ -19,10 +19,35 @@ import {
 import { defaultDailyReport } from './defaults'
 import { makeProject, makeReport, makeSingleBlockReport, makeTask } from '../test/report-builders'
 import { isValidReportDate, isValidReportStructure } from '../server/report-normalize'
+import type { DailyReportData } from './types'
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
+
+/** 空初期値（id 除外）。設計書 emptyReport = defaultDailyReport(date) の契約 */
+function expectEmptyReport(report: DailyReportData, date: string): void {
+  expect(report.date).toBe(date)
+  expect(report.startTime).toBe('9:00')
+  expect(report.endTime).toBe('18:00')
+  expect(report.breakTime).toBe('1:00')
+  expect(report.note).toBe('')
+  expect(report.goodPoints).toBe('')
+  expect(report.badPoints).toBe('')
+  expect(report.nextPlan).toBe('')
+  expect(report.projects).toHaveLength(1)
+  expect(report.projects[0].name).toBe('')
+  expect(report.projects[0].plannedHours).toBe('')
+  expect(report.projects[0].tasks).toHaveLength(1)
+  const task = report.projects[0].tasks[0]
+  expect(task.label).toBe('')
+  expect(task.name).toBe('')
+  expect(task.plannedHours).toBe('')
+  expect(task.actualHours).toBe('')
+  expect(task.progressBefore).toBe('')
+  expect(task.progressExpected).toBe('')
+  expect(task.progressActual).toBe('')
+}
 
 function baselineReport(): ReturnType<typeof defaultDailyReport> {
   return defaultDailyReport('2000-04-21')
@@ -31,7 +56,7 @@ function baselineReport(): ReturnType<typeof defaultDailyReport> {
 describe('AC-L15 applyLoadSuccess / emptyReport', () => {
   it('report が null なら emptyReport(D) と同じ初期値になる', () => {
     const date = '2000-04-21'
-    expect(applyLoadSuccess(date, null)).toEqual(emptyReport(date))
+    expectEmptyReport(applyLoadSuccess(date, null), date)
   })
 
   it('非 null なら戻り値の date は必ず要求日付 D である', () => {
