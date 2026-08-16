@@ -6,6 +6,7 @@ import {
   boolean,
   timestamp,
   uniqueIndex,
+  unique,
 } from 'drizzle-orm/pg-core'
 
 /** 取引先マスタ */
@@ -24,7 +25,11 @@ export const clients = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [uniqueIndex('clients_code_idx').on(table.code)],
+  (table) => [
+    uniqueIndex('clients_code_idx').on(table.code),
+    // S-1: 取引先名の重複作成を防ぐ（設計書「スキーマ変更一覧」）
+    unique('clients_name_unique').on(table.name),
+  ],
 )
 
 /** プロジェクトマスタ（取引先に紐付き） */
@@ -46,7 +51,11 @@ export const projects = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [uniqueIndex('projects_code_idx').on(table.code)],
+  (table) => [
+    uniqueIndex('projects_code_idx').on(table.code),
+    // S-2: 同一取引先内でのプロジェクト名の重複作成を防ぐ（取引先が違えば同名を許す。AC-19）
+    unique('projects_client_name_unique').on(table.clientId, table.name),
+  ],
 )
 
 /** タスクカテゴリマスタ */

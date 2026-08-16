@@ -1,0 +1,138 @@
+# Green Phase Evidence（Phase 8）
+
+- 機能：工数実績の正規化保存
+- 実施日時：2026-08-15
+- 実装：`impl-builder`（fresh context のサブエージェント）
+- **Green Phase 検証：司令塔が独立に再実行**（ワーカーの自己申告は採用していない）
+- 実行環境：`DATABASE_URL='postgres://workhub:workhub_dev@localhost:5433/workhub_test'`（`AGENTS.md` の「DB を分けたい場合は `DATABASE_URL` を環境変数で上書きして実行する」に従う）
+
+## ゲート（司令塔の実測）
+
+| # | ゲート | 結果 |
+|---|---|---|
+| 1 | `npm run check-types` | **PASS**（エラー 0 件） |
+| 2 | `npm run db:push` | S-1〜S-3 は DB に正しく作成された。**ただし `No changes detected` に収束しない**（下記「未解決の運用上の問題」） |
+| 3 | `npm run test`（単体・結合内部） | **213 PASS / 0 FAIL（11 ファイル）** |
+| 4 | `npm run test:integration`（DB込み） | **75 PASS / 0 FAIL（6 ファイル）** |
+| 5 | 既存テストの退行 | **なし**（`auth.integration.test.ts` 5 件・既存単体 6 ファイル 58 件とも PASS） |
+
+**Red Phase（132 FAIL / 56 FAIL）から FAIL がすべてゼロになった。**
+
+## テストを変更していないことの確認（司令塔）
+
+`git status --porcelain` の変更は次の 6 ファイルのみ：
+
+```
+apps/web/src/lib/saved-msg.ts          （スタブ → 実装）
+apps/web/src/routes/index.tsx          （UI を reducer ベースに変更・data-testid 付与）
+apps/web/src/server/functions/reports.ts（T-1/T-2・M-1〜M-4）
+apps/web/src/server/report-normalize.ts （スタブ → 実装。R-1〜R-7）
+apps/web/src/server/schema/master.ts    （S-1・S-2）
+apps/web/src/server/schema/tasks.ts     （S-3）
+```
+
+`*.test.ts` / `*.integration.test.ts` / `apps/web/src/test/` 配下は**一切変更されていない**（grep で確認）。**テストを修正して通したのではなく、実装で通している。**
+
+~~**NUL バイトの混入なし**（`impl-builder` が実装過程で NUL を実バイトとして書き込む事故を起こしたと自己申告したため、司令塔が `grep -rlP '\x00' apps/web/src/` で全走査して 0 件を確認）。~~
+
+> **【訂正・2026-08-15】上記は誤りだった。**Phase 10 レーン1 の指摘を受けて司令塔が Python でバイト単位に再走査したところ、**`apps/web/src/server/functions/reports.ts:307,329` に NUL バイトが 2 個存在した**（M-4 キャッシュのキー区切り文字として使われている）。**この証拠ファイル自身にも、上の記述を書いた際に NUL が 1 個混入していた**（本訂正で除去）。
+>
+> **原因：`grep -P '\x00'` では NUL バイトを検出できない。**grep は行を NUL 終端で扱うため、パターン中の `\x00` は一致しない（再現したところ終了コード 1＝不一致を返した）。**検査方法自体が無効だった。**
+>
+> 以後、NUL バイトの検査はバイト単位で行うこと：
+> ```
+> python3 -c "import pathlib;[print(p) for p in pathlib.Path('apps/web/src').rglob('*') if p.is_file() and b'\x00' in p.read_bytes()]"
+> ```
+>
+> 詳細と対応は Phase 10 の FIND-002 を参照。
+
+## S-1〜S-3 の実 DB 状態（司令塔の実測）
+
+```
+clients_name_unique         | nullsnotdistinct=false
+projects_client_name_unique | nullsnotdistinct=false
+tasks_pj_cl_title_unique    | nullsnotdistinct=true   ← S-3 が設計どおり
+```
+
+`pg_constraint` × `pg_index.indnullsnotdistinct` で直接確認。**S-3 の `NULLS NOT DISTINCT` は実 DB で有効**であり、adhoc タスク（`project_id` / `client_id` が NULL）の重複が防がれている。
+
+## 実行後の状態（司令塔の実測）
+
+```
+daily_reports=0  time_entries=0  clients=0  projects=0  tasks=0
+advisory lock=0
+```
+
+---
+
+## 未解決の運用上の問題：`npm run db:push` が `No changes detected` に収束しない
+
+### 事象
+
+`npm run db:push` を何回実行しても `Changes applied` になり、毎回次を再発行する：
+
+```sql
+ALTER TABLE "tasks" DROP CONSTRAINT "tasks_pj_cl_title_unique";
+ALTER TABLE "tasks" ADD CONSTRAINT "tasks_pj_cl_title_unique" UNIQUE NULLS NOT DISTINCT("project_id","client_id","title");
+```
+
+### 原因（司令塔が実ソースで確認）
+
+drizzle-kit 0.31.10 の introspection は、`information_schema.table_constraints` からユニーク制約を読む際に **`nullsNotDistinct: false` をハードコードしている**：
+
+```js
+// node_modules/drizzle-kit/api.mjs:23305-23309
+uniqueConstrains[constraintName] = {
+  columns: [columnName],
+  nullsNotDistinct: false,   // ← 実 DB の値を読んでいない
+  name: constraintName
+};
+```
+
+`pg_index.indnullsnotdistinct` を一切参照しないため、実 DB が `NULLS NOT DISTINCT` を持っていても検出できない。したがってスキーマ定義（`nullsNotDistinct: true`）との差分が毎回検出される。`impl-builder` の分析は正しい。
+
+### 機能面の影響（司令塔の実測）
+
+- **制約自体は正しく作られ、正しく効いている。**`db:push` を 2 回実行した後も `indnullsnotdistinct=true` のままで、結合テスト 75 件は Green を維持
+- 制約の実効性は 2-1・2-2・2-3・3-1 のテストが検証しており、いずれも PASS
+
+### ただし「実害なし」とは言い切れない（司令塔の判断）
+
+`impl-builder` は「実害なし」と報告したが、司令塔は次の 3 点を残存リスクとして記録する：
+
+1. **`db:push` のたびに制約が一瞬消える。**DROP と ADD の間はユニーク性が担保されない
+2. **重複行がある状態で `db:push` すると、DROP は成功し ADD が失敗する。**結果として**制約が無い状態でテーブルが残る**（設計された安全性が黙って失われる）。未決事項 No.1 が警告している状況と重なる
+3. **`db:push` の `No changes detected` を「スキーマが定義と一致している」判定に使えなくなる。**Phase 6 ではこれを環境汚染の検出手段として実際に使っていた（Round 4 の S-1〜S-3 混入を検出した手段）。今後この判定は S-3 に限り無効
+
+### 対応案（Phase 10 または人間判断）
+
+| 案 | 内容 | 備考 |
+|---|---|---|
+| A | 現状を受容し、`db:push` が S-3 について毎回差分を出すことを文書化する | 実装・設計の変更なし。上記 3 リスクは残る |
+| B | S-3 を Drizzle の `nullsNotDistinct()` ではなく生 SQL のマイグレーションで作成し、スキーマ定義からは外す | `db:push` は収束するが、スキーマ定義と実 DB の二重管理になる |
+| C | drizzle-kit を上げる | 安定版に修正が入っていない（`1.0.0-rc.*` のみ）。本フローの範囲外 |
+
+**司令塔の推奨：案A（受容・文書化）。**制約は正しく機能しており、テストが実効性を検証している。案B は二重管理という別のリスクを生む。ただし上記リスク 2（重複行があると制約が消える）は運用手順で塞ぐべきで、**未決事項 No.1 の確認を `db:push` のたびに行う**ことを申し送る。
+
+---
+
+## Phase 10 への申し送り
+
+1. **`db:push` の非収束（上記）**の扱いを確定すること
+2. **Phase 6 レーンC からの申し送り**：現行実装では `time_entries` / `clients` / `projects` / `tasks` への書き込みが発生していなかったため、**GUARD_DATES の動的網羅とガードAの非空チェックが `daily_reports` でしか運動していなかった**。Phase 8 で全テーブルへの書き込みが実装されたので、**トリガーによる動的観測を全テーブルで再実測すること**
+3. **E2E（観点表 2 章 E2E-1〜E2E-7）のコード化と実行**。特に **E2E-6（未認証 401 判定・AC-40 / AC-75）は本機能で唯一の認可境界検証**であり実行漏れがないこと
+4. **E2E-5（AC-65）の δ 残余**：`T2 < T1 + 2000` が AC-65 の `T2 < t0 + 2000` より緩い。コード化時に埋めるか明示的に受容するかを決めること
+5. **AC-62（マスタ解決の順序）は自動テストで無検証。**実装レビューで目視確認すること（設計書「解決の順序（デッドロック回避のため固定する）」との一致）
+6. **AC-64（再 SELECT 0 件の終端条件）も無検証。**`impl-builder` は「初回 SELECT →(INSERT + 再 SELECT)を最大 2 回」と解釈したと申告している。設計書の記述と整合するかを実装レビューで確認すること
+7. **`report-normalize.ts` の配置・関数名は Phase 5 の仮置きのまま**（テストが import しているため変更していない）。Phase 9 のリファクタ対象になりうるが、変更するとテストが壊れる
+
+---
+
+## 人間の判断（2026-08-15）
+
+| 事項 | 判断 |
+|---|---|
+| `db:push` が `No changes detected` に収束しない件 | **案A：受容・文書化。**`AGENTS.md` に「`db:push` の既知の挙動」節を追加し、原因・制約が正しく効いていること・運用上の 3 注意（DROP と ADD の間に制約が消える／重複行があると制約が失われる／`No changes detected` を一致判定に使えない）を記載した |
+| Phase 9（リファクタ） | **省略。**`AGENTS.md` の lean 運用「Phase 9 は明らかに不要なら省略可」に基づく。`report-normalize.ts` の配置・関数名は Phase 5 の仮置きだが、テストが import しているため変更するとテストが壊れる。構造改善の余地が実質的に限られるため省略する |
+
+次フェーズ：**Phase 10（実装検証：テスト・E2E 実行＋実装レビュー）**。省略不可。

@@ -1,0 +1,66 @@
+name: Playwright Tests
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e_test:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: workhub
+          POSTGRES_PASSWORD: workhub_dev
+          POSTGRES_DB: workhub_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U workhub"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgres://workhub:workhub_dev@127.0.0.1:5432/workhub_e2e
+      E2E_BASE_URL: http://127.0.0.1:3000
+      # E2E は Google の OAuth 画面を通らず、better-auth の testUtils でセッションを直接発行する
+      # （apps/web/e2e/auth.setup.ts）。そのため GOOGLE_CLIENT_ID などの Secrets は不要。
+      # 開発サーバーと setup が同じ署名鍵を使う必要があるため、ここで固定値を渡す。
+      BETTER_AUTH_SECRET: e2e-only-secret-e2e-only-secret-e2e-only
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      # TODO: マイグレーション運用に移行したら drizzle-kit migrate に切り替える
+      - name: Apply database schema
+        run: npm run db:push -- --force
+
+      # シードは Playwright の setup プロジェクト（e2e/auth.setup.ts）が担当するため、
+      # ここで別途 seed コマンドは実行しない
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 30
